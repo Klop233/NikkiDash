@@ -6,10 +6,10 @@ import { access, lstat, lsdir, readfile, unlink } from 'fs';
 import { cursor } from 'uci';
 import { connect } from 'ubus';
 import {
-	DASH_VERSION, NIKKI_PROFILES_DIR, NIKKI_SUBSCRIPTIONS_DIR, NIKKI_STARTED_FLAG,
+	DASH_VERSION, RUNTIME_DIR, NIKKI_PROFILES_DIR, NIKKI_SUBSCRIPTIONS_DIR, NIKKI_STARTED_FLAG,
 	is_valid_basename, is_valid_section_id, is_safe_url, compute_config_revision,
 	acquire_lock, release_lock, exec_argv, cmd_exists, get_caller_session,
-	err_res, ok_res
+	ensure_dir, write_file_atomic, err_res, ok_res
 } from '/usr/share/nikki-dash/lib/common.uc';
 import { load_schema, read_nikki_config, validate_option } from '/usr/share/nikki-dash/lib/schema.uc';
 import {
@@ -214,6 +214,58 @@ const methods = {
 				groups: slice(groups, 0, 12),
 				timestamp: time()
 			});
+		}
+	},
+
+	get_network_probe: {
+		call: function() {
+			let p = `${RUNTIME_DIR}/netprobe.json`;
+			let raw = readfile(p);
+			if (!raw) {
+				return ok_res({ status: 'idle', updated_at: 0 });
+			}
+			try {
+				let st = json(raw);
+				if (st && st.status == 'running' && (time() - (st.started_at ?? 0)) > 35) {
+					st.status = 'error';
+					st.error = '网络质量检测超时，请重试';
+				}
+				return ok_res(st ?? { status: 'idle', updated_at: 0 });
+			} catch (e) {
+				return ok_res({ status: 'idle', updated_at: 0 });
+			}
+		}
+	},
+
+	run_network_probe: {
+		call: function() {
+			ensure_dir(RUNTIME_DIR, 0o755);
+			let p = `${RUNTIME_DIR}/netprobe.json`;
+			let prev = null;
+			let raw = readfile(p);
+			if (raw) {
+				try {
+					prev = json(raw);
+				} catch (e) {}
+			}
+			if (prev && prev.status == 'running' && (time() - (prev.started_at ?? 0)) < 25) {
+				return ok_res(prev);
+			}
+			let next = {
+				...(prev ?? {}),
+				status: 'running',
+				started_at: time(),
+				error: null
+			};
+			write_file_atomic(p, sprintf('%J', next), 0o600);
+			let rc = system([
+				'/bin/sh', '-c',
+				'ucode -S /usr/libexec/nikki-dash/netprobe.uc >/dev/null 2>&1 </dev/null &'
+			]);
+			if (rc != 0) {
+				return err_res('PROBE_SPAWN_FAILED', 'Failed to launch network probe worker');
+			}
+			return ok_res(next);
 		}
 	},
 

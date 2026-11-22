@@ -6,7 +6,64 @@ import { StateView } from '../components/StateView';
 import { ConfirmModal } from '../components/ConfirmModal';
 import { IconError, IconWarning } from '../components/Icons';
 import { formatBytes, formatDuration } from '../utils/format';
-import type { AsyncTask, CapabilitiesResponse, OverviewMetricsResponse, ProxyMode, StatusResponse } from '../api/types';
+import type {
+  AsyncTask,
+  CapabilitiesResponse,
+  NetworkProbeResponse,
+  OverviewMetricsResponse,
+  ProxyMode,
+  ServiceCheckItem,
+  StatusResponse
+} from '../api/types';
+
+function formatClock(epochSec?: number): string {
+  if (!epochSec) return '—';
+  const d = new Date(epochSec * 1000);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+}
+
+function ispTypeBadgeClass(code?: string): string {
+  if (code === 'residential') return 'badge-green';
+  if (code === 'business' || code === 'education' || code === 'mobile') return 'badge-accent';
+  if (code === 'hosting') return 'badge-amber';
+  if (code === 'vpn' || code === 'tor') return 'badge-red';
+  return '';
+}
+
+function riskBadgeClass(level?: string): string {
+  if (level === 'low') return 'badge-green';
+  if (level === 'medium') return 'badge-amber';
+  if (level === 'high' || level === 'critical') return 'badge-red';
+  return '';
+}
+
+function riskFillClass(level?: string): string {
+  if (level === 'low') return 'progress-fill-success';
+  if (level === 'medium') return 'progress-fill-warning';
+  if (level === 'high' || level === 'critical') return 'progress-fill-danger';
+  return '';
+}
+
+function serviceBadge(svc: ServiceCheckItem): { cls: string; text: string } {
+  if (svc.status_kind === 'fail' || !svc.ok) {
+    return { cls: 'badge-red', text: svc.http_code > 0 ? `HTTP ${svc.http_code}` : '不可达' };
+  }
+  if (svc.status_kind === 'restricted') {
+    const ms = svc.latency_ms != null ? `${svc.latency_ms} ms` : '';
+    return { cls: 'badge-amber', text: ms ? `受限 ${ms}` : `受限 ${svc.http_code}` };
+  }
+  const ms = svc.latency_ms ?? 0;
+  const cls = ms < 300 ? 'badge-green' : ms < 900 ? 'badge-amber' : 'badge-red';
+  return { cls, text: `${ms} ms` };
+}
+
+function routeModeLabel(mode?: string): string {
+  if (mode === 'transparent') return '透明代理路径';
+  if (mode === 'local_proxy') return 'Mihomo 代理端口';
+  if (mode === 'direct') return '路由器直连';
+  return '';
+}
 
 export function OverviewPage(props: {
   capabilities?: CapabilitiesResponse | null;
@@ -31,6 +88,10 @@ export function OverviewPage(props: {
   const prevRef = useRef<{ up: number; down: number; ts: number } | null>(null);
   const [fixModal, setFixModal] = useState(false);
   const [fixing, setFixing] = useState(false);
+
+  const [probe, setProbe] = useState<NetworkProbeResponse | null>(null);
+  const [probeErr, setProbeErr] = useState<string | null>(null);
+  const autoProbedRef = useRef(false);
 
   const running = props.status?.running ?? false;
 
@@ -71,6 +132,62 @@ export function OverviewPage(props: {
     { intervalMs: 3000, enabled: running }
   );
 
+  // Load cached network probe on mount; auto-trigger if idle or older than 5 minutes
+  const triggerProbe = useCallback(async () => {
+    setProbeErr(null);
+    try {
+      const res = await nikkiApi.runNetworkProbe();
+      setProbe(res);
+    } catch (err) {
+      setProbeErr((err as Error)?.message || '启动网络质量检测失败');
+    }
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    const init = async () => {
+      try {
+        const res = await nikkiApi.getNetworkProbe();
+        if (!active) return;
+        setProbe(res);
+        setProbeErr(null);
+        const ageSec = res.updated_at ? Math.floor(Date.now() / 1000) - res.updated_at : 999999;
+        if (!autoProbedRef.current && (res.status === 'idle' || (res.status === 'done' && ageSec > 300))) {
+          autoProbedRef.current = true;
+          await triggerProbe();
+        }
+      } catch (err) {
+        if (!active) return;
+        setProbeErr((err as Error)?.message || '读取网络检测状态失败');
+      }
+    };
+    void init();
+    return () => {
+      active = false;
+    };
+  }, [triggerProbe]);
+
+  const probeRunning = probe?.status === 'running';
+  const fetchProbe = useCallback((signal: AbortSignal) => nikkiApi.getNetworkProbe({ signal, timeoutMs: 6000 }), []);
+
+  usePolling(
+    fetchProbe,
+    (res) => {
+      setProbe(res);
+      setProbeErr(res.status === 'error' ? res.error || '网络检测失败' : null);
+    },
+    (err) => {
+      setProbeErr((err as Error)?.message || '读取检测结果失败');
+    },
+    { intervalMs: 900, enabled: probeRunning }
+  );
+
+  const handleCopyIp = (ip?: string) => {
+    if (!ip) return;
+    void navigator.clipboard?.writeText(ip);
+    props.notify('success', `已复制 IP：${ip}`);
+  };
+
   const handleFixBind = async () => {
     setFixing(true);
     try {
@@ -96,12 +213,19 @@ export function OverviewPage(props: {
   const coreVer = st.core_version || props.capabilities?.versions.core || '—';
   const profLabel = props.profileDisplayName || (st.profile ? st.profile.replace(/^(file|subscription):/, '') : '未选择');
 
+  const dom = probe?.domestic;
+  const ov = probe?.overseas;
+  const services = probe?.services ?? [];
+  const domServices = services.filter((s) => s.group === 'domestic');
+  const ovServices = services.filter((s) => s.group === 'overseas');
+  const okSvcCount = services.filter((s) => s.ok).length;
+
   return (
     <div>
       <div class="page-header">
         <div>
           <h1 class="page-title">运行总览</h1>
-          <p class="page-desc">实时监控 Nikki 透明代理状态、Mihomo 核心流量与策略组</p>
+          <p class="page-desc">实时监控 Nikki 透明代理状态、出口 IP 纯净度、服务连通性与策略组</p>
         </div>
         <div class="row" style={{ gap: '12px' }}>
           <button
@@ -193,6 +317,7 @@ export function OverviewPage(props: {
         </div>
       )}
 
+      {/* Top 4 KPI Metric Cards */}
       <div class="grid-4">
         <div class="card">
           <div class="metric-label">服务状态</div>
@@ -233,6 +358,245 @@ export function OverviewPage(props: {
         </div>
       </div>
 
+      {/* Exit IP, Fraud Score, ISP Type & Common Services Connectivity */}
+      <section class="card" style={{ marginTop: '24px' }} aria-label="出口 IP 与网络质量">
+        <div class="card-header">
+          <div class="row" style={{ gap: '12px' }}>
+            <h2 class="card-title">出口 IP 与纯净度检测</h2>
+            {probe?.route_mode && <span class="badge">{routeModeLabel(probe.route_mode)}</span>}
+            {probe?.updated_at ? (
+              <span class="mono" style={{ fontSize: '14px', color: 'var(--text-muted)' }}>
+                检测于 {formatClock(probe.updated_at)}
+              </span>
+            ) : null}
+          </div>
+          <button type="button" class="btn" disabled={probeRunning} onClick={() => void triggerProbe()}>
+            {probeRunning ? (
+              <>
+                <span class="spinner" /> 检测中...
+              </>
+            ) : (
+              '重新检测'
+            )}
+          </button>
+        </div>
+
+        {probeErr && (
+          <div class="alert alert-danger" role="alert">
+            <IconError className="alert-icon" />
+            <div class="alert-body">{probeErr}</div>
+          </div>
+        )}
+
+        {!dom && !ov && probeRunning ? (
+          <div class="grid-2" aria-busy="true" aria-label="正在检测国内外出口 IP">
+            {[0, 1].map((i) => (
+              <div key={i} class="sub-card">
+                <div class="skeleton-row">
+                  <span class="sk" style={{ width: '36%', height: '16px' }} />
+                  <span class="sk" style={{ width: '24%', height: '22px', marginLeft: 'auto', borderRadius: '999px' }} />
+                </div>
+                <div class="skeleton-row">
+                  <span class="sk" style={{ width: '58%', height: '22px' }} />
+                </div>
+                <div class="skeleton-row">
+                  <span class="sk" style={{ width: '80%', height: '14px' }} />
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div class="grid-2">
+            {/* Domestic IP Card */}
+            <div class="sub-card">
+              <div class="row-between" style={{ marginBottom: '12px' }}>
+                <span style={{ fontSize: '16px', lineHeight: '24px', fontWeight: 500 }}>国内直连 IP</span>
+                <span class={`badge ${dom?.ok ? 'badge-green' : ''}`}>{dom?.ok ? '直连正常' : '未获取'}</span>
+              </div>
+
+              <div class="ip-headline">
+                <span class="ip-value mono">{dom?.ip || '—'}</span>
+                {dom?.ip && (
+                  <button type="button" class="btn btn-ghost" onClick={() => handleCopyIp(dom.ip)}>
+                    复制
+                  </button>
+                )}
+              </div>
+
+              <dl class="kv-grid" style={{ gridTemplateColumns: '84px minmax(0, 1fr)' }}>
+                <dt class="kv-key">归属地</dt>
+                <dd class="kv-val">{dom?.location || '—'}</dd>
+                <dt class="kv-key">运营商</dt>
+                <dd class="kv-val">{dom?.isp || '—'}</dd>
+                <dt class="kv-key">ASN</dt>
+                <dd class="kv-val mono">{dom?.asn || '—'}</dd>
+                <dt class="kv-key">数据来源</dt>
+                <dd class="kv-val mono" style={{ color: 'var(--text-muted)' }}>
+                  {dom?.source || '—'}
+                </dd>
+              </dl>
+            </div>
+
+            {/* Overseas / Proxy Exit IP Card */}
+            <div class="sub-card">
+              <div class="row-between" style={{ marginBottom: '12px' }}>
+                <span style={{ fontSize: '16px', lineHeight: '24px', fontWeight: 500 }}>国外 / 代理出口 IP</span>
+                <div class="row" style={{ gap: '6px' }}>
+                  {ov?.ok && <span class={`badge ${ispTypeBadgeClass(ov.isp_type)}`}>{ov.isp_type_label}</span>}
+                  {ov?.ok && ov.fraud_score != null && (
+                    <span class={`badge mono ${riskBadgeClass(ov.risk_level)}`}>
+                      欺诈分 {ov.fraud_score}
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              <div class="ip-headline">
+                <span class="ip-value mono">{ov?.ip || '—'}</span>
+                {ov?.ip && (
+                  <button type="button" class="btn btn-ghost" onClick={() => handleCopyIp(ov.ip)}>
+                    复制
+                  </button>
+                )}
+              </div>
+
+              <dl class="kv-grid" style={{ gridTemplateColumns: '84px minmax(0, 1fr)' }}>
+                <dt class="kv-key">归属地</dt>
+                <dd class="kv-val">
+                  {ov?.location || '—'}
+                  {ov?.country_code ? <span class="mono" style={{ color: 'var(--text-muted)' }}> ({ov.country_code})</span> : null}
+                </dd>
+                <dt class="kv-key">运营商</dt>
+                <dd class="kv-val">
+                  {ov?.asn ? <span class="mono">{ov.asn}</span> : null}
+                  {ov?.asn && (ov?.isp || ov?.org) ? ' · ' : ''}
+                  {ov?.isp || ov?.org || (ov?.asn ? '' : '—')}
+                </dd>
+                <dt class="kv-key">ISP 类型</dt>
+                <dd class="kv-val">
+                  {ov?.ok ? (
+                    <div class="row" style={{ gap: '6px' }}>
+                      <span class={`badge ${ispTypeBadgeClass(ov.isp_type)}`}>{ov.isp_type_label}</span>
+                      <span class={`badge ${ov.flags.is_proxy || ov.flags.is_vpn ? 'badge-amber' : 'badge-green'}`}>
+                        {ov.flags.is_vpn ? 'VPN 出口' : ov.flags.is_proxy ? '代理 IP' : '非代理'}
+                      </span>
+                      {ov.flags.is_datacenter && <span class="badge badge-amber">数据中心</span>}
+                      {ov.flags.is_mobile && <span class="badge badge-accent">移动网络</span>}
+                      {ov.flags.is_tor && <span class="badge badge-red">Tor</span>}
+                    </div>
+                  ) : (
+                    '—'
+                  )}
+                </dd>
+                <dt class="kv-key">IP 欺诈分</dt>
+                <dd class="kv-val">
+                  {ov?.ok && ov.fraud_score != null ? (
+                    <div class="stack" style={{ gap: '6px' }}>
+                      <div class="row-between">
+                        <span class="mono" style={{ fontWeight: 500 }}>
+                          {ov.fraud_score} / 100
+                        </span>
+                        <span class={`badge ${riskBadgeClass(ov.risk_level)}`}>{ov.risk_label}</span>
+                      </div>
+                      <div
+                        class="progress-bar"
+                        role="progressbar"
+                        aria-label="IP 欺诈分"
+                        aria-valuenow={ov.fraud_score}
+                        aria-valuemin={0}
+                        aria-valuemax={100}
+                      >
+                        <div
+                          class={`progress-fill ${riskFillClass(ov.risk_level)}`}
+                          style={{ width: `${Math.max(4, Math.min(100, ov.fraud_score))}%` }}
+                        />
+                      </div>
+                    </div>
+                  ) : (
+                    '—'
+                  )}
+                </dd>
+                <dt class="kv-key">检测来源</dt>
+                <dd class="kv-val mono" style={{ color: 'var(--text-muted)' }}>
+                  {ov?.sources?.length ? ov.sources.join(' · ') : '—'}
+                </dd>
+              </dl>
+            </div>
+          </div>
+        )}
+      </section>
+
+      {/* Common Services Connectivity */}
+      <section class="card" style={{ marginTop: '24px' }} aria-label="常见服务连通性">
+        <div class="card-header">
+          <div class="row" style={{ gap: '12px' }}>
+            <h2 class="card-title">常见服务连通性</h2>
+            {services.length > 0 && (
+              <span class={`badge mono ${okSvcCount === services.length ? 'badge-green' : okSvcCount > 0 ? 'badge-amber' : 'badge-red'}`}>
+                可达 {okSvcCount} / {services.length}
+              </span>
+            )}
+          </div>
+          <button type="button" class="btn btn-ghost" disabled={probeRunning} onClick={() => void triggerProbe()}>
+            {probeRunning ? '检测中...' : '刷新连通性'}
+          </button>
+        </div>
+
+        {services.length === 0 ? (
+          probeRunning ? (
+            <div class="probe-grid" aria-busy="true" aria-label="正在测试常见服务连通性">
+              {[0, 1, 2, 3, 4, 5, 6, 7].map((i) => (
+                <div key={i} class="probe-tile">
+                  <span class="sk" style={{ width: '48%', height: '14px' }} />
+                  <span class="sk" style={{ width: '32%', height: '22px', borderRadius: '999px' }} />
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p style={{ margin: 0, fontSize: '16px', lineHeight: '26px', color: 'var(--text-muted)' }}>
+              点击「刷新连通性」测试国内与海外常见服务的访问状态与延迟。
+            </p>
+          )
+        ) : (
+          <div class="stack" style={{ gap: '20px' }}>
+            {domServices.length > 0 && (
+              <div>
+                <div class="probe-group-label">国内服务</div>
+                <div class="probe-grid">
+                  {domServices.map((svc) => {
+                    const b = serviceBadge(svc);
+                    return (
+                      <div key={svc.id} class="probe-tile" title={`HTTP ${svc.http_code || '超时'}`}>
+                        <span class="probe-name">{svc.name}</span>
+                        <span class={`badge mono ${b.cls}`}>{b.text}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {ovServices.length > 0 && (
+              <div>
+                <div class="probe-group-label">海外与常用服务</div>
+                <div class="probe-grid">
+                  {ovServices.map((svc) => {
+                    const b = serviceBadge(svc);
+                    return (
+                      <div key={svc.id} class="probe-tile" title={`HTTP ${svc.http_code || '超时'}`}>
+                        <span class="probe-name">{svc.name}</span>
+                        <span class={`badge mono ${b.cls}`}>{b.text}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </section>
+
+      {/* Traffic Sparkline & Health Summary */}
       <div class="grid-2" style={{ marginTop: '24px' }}>
         <div class="card">
           <div class="card-header">
@@ -298,6 +662,7 @@ export function OverviewPage(props: {
         </div>
       </div>
 
+      {/* Strategy Groups Quick Entry */}
       <div class="card" style={{ marginTop: '24px' }}>
         <div class="card-header">
           <h2 class="card-title">常用策略组快捷入口</h2>

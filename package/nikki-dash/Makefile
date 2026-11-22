@@ -1,7 +1,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=nikki-dash
-PKG_VERSION:=0.4.0
+PKG_VERSION:=0.5.0
 PKG_RELEASE:=1
 PKG_LICENSE:=MIT
 PKG_MAINTAINER:=Klop233
@@ -61,6 +61,7 @@ define Package/nikki-dash/install
 	$(INSTALL_DIR) $(1)/usr/libexec/nikki-dash
 	$(INSTALL_BIN) $(CURDIR)/files/usr/libexec/nikki-dash/worker.uc $(1)/usr/libexec/nikki-dash/worker.uc
 	$(INSTALL_BIN) $(CURDIR)/files/usr/libexec/nikki-dash/netcheck.uc $(1)/usr/libexec/nikki-dash/netcheck.uc
+	$(INSTALL_BIN) $(CURDIR)/files/usr/libexec/nikki-dash/netprobe.uc $(1)/usr/libexec/nikki-dash/netprobe.uc
 	$(INSTALL_BIN) $(CURDIR)/files/usr/libexec/nikki-dash/revoke_guest.uc $(1)/usr/libexec/nikki-dash/revoke_guest.uc
 
 	$(INSTALL_DIR) $(1)/usr/share/rpcd/acl.d

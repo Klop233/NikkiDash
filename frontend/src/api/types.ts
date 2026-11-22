@@ -144,6 +144,68 @@ export interface OverviewMetricsResponse {
   error_code?: string;
 }
 
+export interface DomesticIpInfo {
+  ok: boolean;
+  ip: string;
+  country: string;
+  region: string;
+  city: string;
+  location: string;
+  isp: string;
+  asn: string;
+  source: string;
+}
+
+export interface OverseasIpInfo {
+  ok: boolean;
+  ip: string;
+  country: string;
+  country_code: string;
+  region: string;
+  city: string;
+  location: string;
+  isp: string;
+  org: string;
+  asn: string;
+  isp_type: 'residential' | 'business' | 'hosting' | 'vpn' | 'mobile' | 'education' | 'tor' | 'unknown';
+  isp_type_label: string;
+  fraud_score: number | null;
+  risk_level: 'low' | 'medium' | 'high' | 'critical' | 'unknown';
+  risk_label: string;
+  flags: {
+    is_proxy: boolean;
+    is_vpn: boolean;
+    is_tor: boolean;
+    is_datacenter: boolean;
+    is_hosting: boolean;
+    is_mobile: boolean;
+  };
+  sources: string[];
+}
+
+export interface ServiceCheckItem {
+  id: string;
+  name: string;
+  group: 'domestic' | 'overseas';
+  ok: boolean;
+  status_kind: 'ok' | 'restricted' | 'fail';
+  http_code: number;
+  latency_ms: number | null;
+}
+
+export interface NetworkProbeResponse {
+  ok: boolean;
+  status: 'idle' | 'running' | 'done' | 'error';
+  started_at?: number;
+  updated_at?: number;
+  route_mode?: 'transparent' | 'local_proxy' | 'direct';
+  nikki_running?: boolean;
+  domestic?: DomesticIpInfo;
+  overseas?: OverseasIpInfo;
+  services?: ServiceCheckItem[];
+  error?: string;
+}
+
 export interface ProxyNode {
   name: string;
   type: string;

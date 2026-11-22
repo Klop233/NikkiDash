@@ -31,7 +31,8 @@
           "get_task",
           "list_tasks",
           "get_access",
-          "get_core_status"
+          "get_core_status",
+          "get_network_probe"
         ],
         "session": [
           "access",
@@ -65,7 +66,8 @@
           "update_subscription",
           "set_access",
           "install_core",
-          "remove_luci_nikki"
+          "remove_luci_nikki",
+          "run_network_probe"
         ],
         "session": [
           "destroy"
@@ -95,7 +97,8 @@
           "get_task",
           "list_tasks",
           "get_access",
-          "get_core_status"
+          "get_core_status",
+          "get_network_probe"
         ],
         "session": [
           "access",
@@ -126,7 +129,8 @@
           "fix_controller_bind",
           "apply_config",
           "service_action",
-          "update_subscription"
+          "update_subscription",
+          "run_network_probe"
         ],
         "session": [
           "destroy"

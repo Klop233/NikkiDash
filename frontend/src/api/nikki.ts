@@ -18,6 +18,7 @@ import type {
   CorePlatformInfo,
   LangCode,
   ManagedFileEntry,
+  NetworkProbeResponse,
   OverviewMetricsResponse,
   ProfilesResponse,
   ProxyMode,
@@ -100,6 +101,12 @@ export const nikkiApi = {
 
   getOverviewMetrics: async (opts?: CallOptions) =>
     unwrap(await ubusCall<OverviewMetricsResponse>('nikki-dash', 'get_overview_metrics', {}, opts)),
+
+  getNetworkProbe: async (opts?: CallOptions) =>
+    unwrap(await ubusCall<NetworkProbeResponse>('nikki-dash', 'get_network_probe', {}, opts)),
+
+  runNetworkProbe: async (opts?: CallOptions) =>
+    unwrap(await ubusCall<NetworkProbeResponse>('nikki-dash', 'run_network_probe', {}, opts)),
 
   getConfig: async (opts?: CallOptions) =>
     unwrap(await ubusCall<ConfigResponse>('nikki-dash', 'get_config', {}, opts)),

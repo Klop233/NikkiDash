@@ -28,6 +28,7 @@ const execPaths = new Set([
   'etc/init.d/nikki-dash',
   'usr/libexec/nikki-dash/worker.uc',
   'usr/libexec/nikki-dash/netcheck.uc',
+  'usr/libexec/nikki-dash/netprobe.uc',
   'usr/libexec/nikki-dash/revoke_guest.uc'
 ]);
 
