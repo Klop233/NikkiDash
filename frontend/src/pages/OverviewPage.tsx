@@ -5,9 +5,10 @@ import { TrafficChart } from '../components/TrafficChart';
 import { StateView } from '../components/StateView';
 import { ConfirmModal } from '../components/ConfirmModal';
 import { formatBytes, formatDuration } from '../utils/format';
-import type { AsyncTask, OverviewMetricsResponse, ProxyMode, StatusResponse } from '../api/types';
+import type { AsyncTask, CapabilitiesResponse, OverviewMetricsResponse, ProxyMode, StatusResponse } from '../api/types';
 
 export function OverviewPage(props: {
+  capabilities?: CapabilitiesResponse | null;
   status: StatusResponse | null;
   statusError: string | null;
   onRefreshStatus: () => void;
@@ -100,6 +101,19 @@ export function OverviewPage(props: {
           </button>
         </div>
       </div>
+
+      {props.capabilities &&
+        (!props.capabilities.dependencies.nikki_installed || !props.capabilities.dependencies.mihomo_installed) && (
+          <div class="alert alert-warning">
+            <div>
+              <strong>尚未安装 Nikki / Mihomo 核心：</strong>
+              NikkiDash 已就绪，你可以直接前往引导页一键安装官方 Nikki 与 Mihomo 核心，无需 SSH 手动配置。
+            </div>
+            <button class="btn btn-sm btn-primary" onClick={() => props.onNavigate('onboarding')}>
+              一键安装核心
+            </button>
+          </div>
+        )}
 
       {st.controller.exposed_warning && (
         <div class="alert alert-warning">

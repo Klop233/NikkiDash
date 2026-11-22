@@ -15,6 +15,7 @@ import type {
   CapabilitiesResponse,
   ConfigResponse,
   ConnectionItem,
+  CorePlatformInfo,
   LangCode,
   ManagedFileEntry,
   OverviewMetricsResponse,
@@ -392,6 +393,24 @@ export const nikkiApi = {
 
   listTasks: async (limit = 15, opts?: CallOptions) =>
     unwrap(await ubusCall<{ ok: boolean; tasks: AsyncTask[] }>('nikki-dash', 'list_tasks', { limit }, opts)),
+
+  getCoreStatus: async (opts?: CallOptions) =>
+    unwrap(await ubusCall<{ ok: boolean; platform: CorePlatformInfo }>('nikki-dash', 'get_core_status', {}, opts)),
+
+  installCore: async (coreVariant: 'meta' | 'alpha' = 'meta', idempotencyKey = '') =>
+    unwrap(
+      await ubusCall<{ ok: boolean; task: AsyncTask }>('nikki-dash', 'install_core', {
+        core_variant: coreVariant,
+        idempotency_key: idempotencyKey
+      })
+    ),
+
+  removeLuciNikki: async (idempotencyKey = '') =>
+    unwrap(
+      await ubusCall<{ ok: boolean; task: AsyncTask }>('nikki-dash', 'remove_luci_nikki', {
+        idempotency_key: idempotencyKey
+      })
+    ),
 
   getAccess: async (opts?: CallOptions) =>
     unwrap(await ubusCall<{ ok: boolean; access: AccessConfig }>('nikki-dash', 'get_access', {}, opts)),

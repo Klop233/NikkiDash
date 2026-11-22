@@ -13,6 +13,7 @@ import {
 import { validate_and_stage_changes } from '/usr/share/nikki-dash/lib/schema.uc';
 import { resolve_controller, controller_public_info, api_version } from '/usr/share/nikki-dash/lib/mihomo.uc';
 import { task_path, write_task_state, snapshot_nikki_files, restore_nikki_snapshot } from '/usr/share/nikki-dash/lib/tx.uc';
+import { install_or_upgrade_core, remove_luci_nikki_packages } from '/usr/share/nikki-dash/lib/core.uc';
 
 const task_id = ARGV[0];
 if (!task_id || !match(task_id, /^[A-Za-z0-9_-]{6,64}$/)) exit(2);
@@ -379,6 +380,52 @@ function handle_update_subscription(ubus) {
 	}
 }
 
+function handle_install_core() {
+	let lock = acquire_lock(task_id, 300);
+	if (!lock.ok) {
+		finish('failed', 'Write lock busy', lock.error);
+		return;
+	}
+	try {
+		let res = install_or_upgrade_core(payload, step);
+		release_lock();
+		if (!res.ok) {
+			finish('failed', 'Failed to install/upgrade Nikki core', res.error);
+			return;
+		}
+		finish('succeeded', 'Nikki core and Mihomo installed successfully', null, {
+			platform: res.platform,
+			installed_packages: res.installed_packages
+		});
+	} catch (e) {
+		release_lock();
+		finish('failed', 'Unexpected error installing Nikki core', sprintf('%s', e));
+	}
+}
+
+function handle_remove_luci_nikki() {
+	let lock = acquire_lock(task_id, 120);
+	if (!lock.ok) {
+		finish('failed', 'Write lock busy', lock.error);
+		return;
+	}
+	try {
+		let res = remove_luci_nikki_packages(step);
+		release_lock();
+		if (!res.ok) {
+			finish('failed', 'Failed to remove legacy luci-app-nikki', res.error);
+			return;
+		}
+		finish('succeeded', length(res.removed) > 0 ? `Removed: ${join(', ', res.removed)}` : 'No legacy LuCI Nikki packages installed', null, {
+			removed: res.removed,
+			platform: res.platform
+		});
+	} catch (e) {
+		release_lock();
+		finish('failed', 'Unexpected error removing luci-app-nikki', sprintf('%s', e));
+	}
+}
+
 // Entry point
 task.status = 'running';
 task.started_at = time();
@@ -391,6 +438,10 @@ if (task.kind == 'apply_config') {
 	handle_service_action(ubus);
 } else if (task.kind == 'update_subscription') {
 	handle_update_subscription(ubus);
+} else if (task.kind == 'install_core') {
+	handle_install_core();
+} else if (task.kind == 'remove_luci_nikki') {
+	handle_remove_luci_nikki();
 } else {
 	finish('failed', 'Unknown task kind', `Unsupported task kind: ${task.kind}`);
 }

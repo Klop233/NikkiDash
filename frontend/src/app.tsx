@@ -192,6 +192,9 @@ export function App() {
         else if (t.status === 'unknown') notify('info', t.message || '任务超时，状态未明，请核对实时状态');
         else notify('error', `任务失败: ${t.error || t.message}`);
         void refreshStatus();
+        if (t.kind === 'install_core' || t.kind === 'remove_luci_nikki') {
+          void loadCapabilitiesAndProfiles();
+        }
       }
     },
     () => {},
@@ -337,6 +340,7 @@ export function App() {
 
         {page === 'overview' && (
           <OverviewPage
+            capabilities={capabilities}
             status={status}
             statusError={statusError}
             onRefreshStatus={refreshStatus}
@@ -378,19 +382,24 @@ export function App() {
         {page === 'panel' && (
           <PanelSettingsPage
             session={session}
+            capabilities={capabilities}
             theme={theme}
             lang={lang}
             onThemeChange={setTheme}
             onLangChange={setLang}
             onSwitchToAdminLogin={handleSwitchToAdminLogin}
+            onTrackTask={setActiveTask}
+            onRefreshCapabilities={() => void loadCapabilitiesAndProfiles()}
             notify={notify}
           />
         )}
 
         {page === 'onboarding' && (
           <OnboardingPage
+            session={session}
             capabilities={capabilities}
             profiles={profiles}
+            onTrackTask={setActiveTask}
             onRefreshAll={() => {
               void loadCapabilitiesAndProfiles();
               void refreshStatus();

@@ -1,21 +1,38 @@
 import { useCallback, useEffect, useState } from 'preact/hooks';
 import { nikkiApi } from '../api/nikki';
 import { StateView } from '../components/StateView';
-import type { AccessConfig, AccessMode, LangCode, SessionState, ThemeMode } from '../api/types';
+import { ConfirmModal } from '../components/ConfirmModal';
+import type {
+  AccessConfig,
+  AccessMode,
+  AsyncTask,
+  CapabilitiesResponse,
+  LangCode,
+  SessionState,
+  ThemeMode
+} from '../api/types';
 
 export function PanelSettingsPage(props: {
   session: SessionState;
+  capabilities?: CapabilitiesResponse | null;
   theme: ThemeMode;
   lang: LangCode;
   onThemeChange: (t: ThemeMode) => void;
   onLangChange: (l: LangCode) => void;
   onSwitchToAdminLogin: () => void;
+  onTrackTask?: (task: AsyncTask) => void;
+  onRefreshCapabilities?: () => void;
   notify: (kind: 'success' | 'error' | 'info', msg: string) => void;
 }) {
   const [access, setAccess] = useState<AccessConfig | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [coreVariant, setCoreVariant] = useState<'meta' | 'alpha'>(
+    props.capabilities?.platform?.mihomo_variant === 'alpha' ? 'alpha' : 'meta'
+  );
+  const [coreBusy, setCoreBusy] = useState(false);
+  const [removeLuciModal, setRemoveLuciModal] = useState(false);
 
   const [mode, setMode] = useState<AccessMode>('lan_auth');
   const [httpPort, setHttpPort] = useState(18080);
@@ -87,6 +104,35 @@ export function PanelSettingsPage(props: {
       setSaving(false);
     }
   };
+
+  const handleInstallOrUpgradeCore = async () => {
+    setCoreBusy(true);
+    try {
+      const res = await nikkiApi.installCore(coreVariant, `panel_core_${coreVariant}_${Math.floor(Date.now() / 5000)}`);
+      if (props.onTrackTask) props.onTrackTask(res.task);
+      props.notify('info', `已提交 Nikki 核心 + mihomo-${coreVariant} 安装/更新任务...`);
+    } catch (err) {
+      props.notify('error', (err as Error).message);
+    } finally {
+      setCoreBusy(false);
+    }
+  };
+
+  const handleRemoveLuci = async () => {
+    setCoreBusy(true);
+    try {
+      const res = await nikkiApi.removeLuciNikki(`rm_luci_${Math.floor(Date.now() / 5000)}`);
+      if (props.onTrackTask) props.onTrackTask(res.task);
+      props.notify('info', '已提交旧版 luci-app-nikki 卸载任务（将保留 nikki 核心与配置）...');
+      setRemoveLuciModal(false);
+    } catch (err) {
+      props.notify('error', (err as Error).message);
+    } finally {
+      setCoreBusy(false);
+    }
+  };
+
+  const plat = props.capabilities?.platform;
 
   if (loading && !access) return <StateView kind="loading" title="正在加载面板设置..." />;
   if (error && !access) return <StateView kind="error" title="无法读取面板设置" message={error} actionLabel="重试" onAction={load} />;
@@ -302,6 +348,85 @@ export function PanelSettingsPage(props: {
 
       <div class="card" style={{ marginTop: '14px' }}>
         <div class="card-header">
+          <h3 class="card-title">Nikki 核心集成与旧版 LuCI 管理</h3>
+          <span class={`badge ${plat?.nikki_installed && plat?.mihomo_installed ? 'badge-green' : 'badge-amber'}`}>
+            {plat?.nikki_installed && plat?.mihomo_installed ? '核心已就绪' : '未安装核心'}
+          </span>
+        </div>
+        <div class="grid-2" style={{ marginBottom: '12px' }}>
+          <div class="stack" style={{ gap: '6px', fontSize: '13px' }}>
+            <div>
+              <strong>系统环境：</strong>{' '}
+              <span class="mono">
+                {plat ? `${plat.distrib_id} ${plat.distrib_release} / ${plat.arch} / ${plat.pkg_mgr}` : '加载中...'}
+              </span>
+            </div>
+            <div>
+              <strong>Nikki 核心包：</strong>{' '}
+              <span class="mono">{props.capabilities?.versions.nikki || (plat?.nikki_installed ? '已安装' : '未安装')}</span>
+            </div>
+            <div>
+              <strong>Mihomo 内核：</strong>{' '}
+              <span class="mono">
+                {props.capabilities?.versions.core || '未安装'}
+                {plat?.mihomo_variant ? ` (mihomo-${plat.mihomo_variant})` : ''}
+              </span>
+            </div>
+          </div>
+          <div class="stack" style={{ gap: '6px', fontSize: '13px' }}>
+            <div>
+              <strong>官方核心源：</strong>{' '}
+              <span class="mono" style={{ wordBreak: 'break-all' }}>{plat?.feed_url || '不支持'}</span>
+            </div>
+            <div>
+              <strong>旧版 LuCI 界面：</strong>{' '}
+              {plat?.luci_nikki_installed ? (
+                <span class="badge badge-amber">{plat.luci_packages.join(', ')}</span>
+              ) : (
+                <span class="badge badge-green">未安装 / 已清理</span>
+              )}
+            </div>
+          </div>
+        </div>
+        <div class="row" style={{ flexWrap: 'wrap', gap: '10px' }}>
+          <select
+            class="select"
+            style={{ maxWidth: '220px' }}
+            value={coreVariant}
+            disabled={coreBusy || props.session.isGuest}
+            onChange={(e) => setCoreVariant((e.currentTarget as HTMLSelectElement).value as 'meta' | 'alpha')}
+          >
+            <option value="meta">mihomo-meta（稳定版）</option>
+            <option value="alpha">mihomo-alpha（测试版）</option>
+          </select>
+          <button
+            type="button"
+            class="btn btn-primary"
+            disabled={coreBusy || props.session.isGuest || (plat ? !plat.supported : false)}
+            onClick={handleInstallOrUpgradeCore}
+          >
+            {plat?.nikki_installed && plat?.mihomo_installed ? '更新 Nikki / Mihomo 核心' : '一键安装 Nikki + Mihomo 核心'}
+          </button>
+          {plat?.luci_nikki_installed && (
+            <button
+              type="button"
+              class="btn btn-danger"
+              disabled={coreBusy || props.session.isGuest}
+              onClick={() => setRemoveLuciModal(true)}
+            >
+              卸载旧版 LuCI 界面
+            </button>
+          )}
+          {props.onRefreshCapabilities && (
+            <button type="button" class="btn" onClick={props.onRefreshCapabilities}>
+              刷新状态
+            </button>
+          )}
+        </div>
+      </div>
+
+      <div class="card" style={{ marginTop: '14px' }}>
+        <div class="card-header">
           <h3 class="card-title">故障恢复命令（SSH）</h3>
         </div>
         <p style={{ margin: '0 0 8px', fontSize: '13px', color: 'var(--text-secondary)' }}>
@@ -311,6 +436,17 @@ export function PanelSettingsPage(props: {
           {access?.security_notes?.recovery_cli}
         </pre>
       </div>
+
+      <ConfirmModal
+        open={removeLuciModal}
+        title="卸载旧版 LuCI Nikki 界面？"
+        message={`将仅卸载 ${(plat?.luci_packages || []).join(', ')}。核心包 nikki、mihomo 与 /etc/config/nikki 配置文件将完整保留，NikkiDash 面板不受影响。`}
+        danger
+        busy={coreBusy}
+        confirmLabel="确认卸载旧版 LuCI"
+        onConfirm={handleRemoveLuci}
+        onCancel={() => setRemoveLuciModal(false)}
+      />
     </div>
   );
 }

@@ -30,6 +30,7 @@ import {
 	get_capabilities, get_system_identifiers, detect_conflicts,
 	read_logs, clear_logs, build_diagnostics
 } from '/usr/share/nikki-dash/lib/diagnostics.uc';
+import { detect_platform } from '/usr/share/nikki-dash/lib/core.uc';
 
 const ubus = connect();
 
@@ -711,6 +712,33 @@ const methods = {
 		args: { limit: 0 },
 		call: function(req) {
 			return list_recent_tasks(req.args?.limit);
+		}
+	},
+
+	/* ==================== Integrated Nikki Core Management ==================== */
+
+	get_core_status: {
+		call: function() {
+			return ok_res({ platform: detect_platform() });
+		}
+	},
+
+	install_core: {
+		args: { core_variant: '', idempotency_key: '' },
+		call: function(req) {
+			let variant = req.args?.core_variant ?? 'meta';
+			if (variant == '') variant = 'meta';
+			if (variant != 'meta' && variant != 'alpha') {
+				return err_res('INVALID_PARAM', 'core_variant must be meta or alpha');
+			}
+			return spawn_async_task('install_core', { core_variant: variant }, req.args?.idempotency_key);
+		}
+	},
+
+	remove_luci_nikki: {
+		args: { idempotency_key: '' },
+		call: function(req) {
+			return spawn_async_task('remove_luci_nikki', {}, req.args?.idempotency_key);
 		}
 	},
 

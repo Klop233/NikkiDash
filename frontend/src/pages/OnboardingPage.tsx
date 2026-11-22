@@ -1,10 +1,12 @@
 import { useState } from 'preact/hooks';
 import { nikkiApi } from '../api/nikki';
-import type { CapabilitiesResponse, ProfilesResponse } from '../api/types';
+import type { AsyncTask, CapabilitiesResponse, ProfilesResponse, SessionState } from '../api/types';
 
 export function OnboardingPage(props: {
+  session?: SessionState;
   capabilities: CapabilitiesResponse | null;
   profiles: ProfilesResponse | null;
+  onTrackTask?: (task: AsyncTask) => void;
   onRefreshAll: () => void;
   onDone: () => void;
   notify: (kind: 'success' | 'error' | 'info', msg: string) => void;
@@ -13,10 +15,27 @@ export function OnboardingPage(props: {
   const [subUrl, setSubUrl] = useState('');
   const [yamlName, setYamlName] = useState('custom.yaml');
   const [yamlContent, setYamlContent] = useState('');
+  const [coreVariant, setCoreVariant] = useState<'meta' | 'alpha'>('meta');
   const [busy, setBusy] = useState(false);
 
   const deps = props.capabilities?.dependencies;
+  const plat = props.capabilities?.platform;
   const conflicts = props.capabilities?.conflicts ?? [];
+  const coreReady = Boolean(deps?.nikki_installed && deps?.mihomo_installed);
+  const isGuest = props.session?.isGuest ?? false;
+
+  const handleInstallCore = async () => {
+    setBusy(true);
+    try {
+      const res = await nikkiApi.installCore(coreVariant, `core_${coreVariant}_${Math.floor(Date.now() / 5000)}`);
+      if (props.onTrackTask) props.onTrackTask(res.task);
+      props.notify('info', `已提交一键安装任务（mihomo-${coreVariant} + nikki 核心，不安装旧版 LuCI），请稍候...`);
+    } catch (err) {
+      props.notify('error', (err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const handleAddSub = async (e: Event) => {
     e.preventDefault();
@@ -29,7 +48,8 @@ export function OnboardingPage(props: {
         prefer: 'remote'
       });
       await nikkiApi.switchProfile(`subscription:${saved.id}`, false);
-      await nikkiApi.updateSubscription(saved.id, false);
+      const upd = await nikkiApi.updateSubscription(saved.id, false);
+      if (props.onTrackTask && upd.task) props.onTrackTask(upd.task);
       props.notify('success', '订阅已保存并开始拉取，可在总览或配置页查看进度');
       props.onRefreshAll();
       props.onDone();
@@ -70,7 +90,7 @@ export function OnboardingPage(props: {
       <div class="page-header">
         <div>
           <h2 class="page-title">环境检测与首次配置向导</h2>
-          <p class="page-desc">检查 OpenWrt 路由器的 Nikki / Mihomo / firewall4 依赖并快速导入首个订阅或配置文件</p>
+          <p class="page-desc">自动集成安装 Nikki / Mihomo 核心（无需手动单独安装）并快速导入订阅或配置文件</p>
         </div>
         <button class="btn" onClick={props.onRefreshAll}>
           重新检测
@@ -89,11 +109,61 @@ export function OnboardingPage(props: {
         </div>
       )}
 
+      {!coreReady && (
+        <div class="card" style={{ marginBottom: '14px', borderColor: 'var(--accent)' }}>
+          <div class="card-header">
+            <h3 class="card-title">步骤一：一键集成安装 Nikki 与 Mihomo 核心</h3>
+            <span class="badge badge-amber">未检测到核心</span>
+          </div>
+          <p style={{ margin: '0 0 12px', fontSize: '13px', color: 'var(--text-secondary)' }}>
+            当前路由器尚未安装 Nikki 服务包或 Mihomo 内核。NikkiDash 可直接从官方软件源自动配置签名与源并安装{' '}
+            <span class="mono">nikki</span> + <span class="mono">mihomo</span> 核心（不安装旧版{' '}
+            <span class="mono">luci-app-nikki</span>），无需在 SSH 手动操作。
+          </p>
+          <div class="row" style={{ flexWrap: 'wrap', gap: '10px' }}>
+            <select
+              class="select"
+              style={{ maxWidth: '240px' }}
+              value={coreVariant}
+              disabled={busy || isGuest}
+              onChange={(e) => setCoreVariant((e.currentTarget as HTMLSelectElement).value as 'meta' | 'alpha')}
+            >
+              <option value="meta">mihomo-meta（推荐稳定版）</option>
+              <option value="alpha">mihomo-alpha（测试版）</option>
+            </select>
+            <button
+              class="btn btn-primary"
+              disabled={busy || isGuest || (plat ? !plat.supported : false)}
+              onClick={handleInstallCore}
+            >
+              {busy ? '提交安装任务中...' : '一键安装 Nikki + Mihomo 核心'}
+            </button>
+            {plat && (
+              <span class="badge">
+                {plat.distrib_id} {plat.distrib_release} · {plat.arch || '?'} · {plat.pkg_mgr}
+              </span>
+            )}
+          </div>
+          {plat && !plat.supported && (
+            <div style={{ marginTop: '8px', fontSize: '12px', color: 'var(--red)' }}>
+              当前系统（{plat.distrib_id} {plat.distrib_release} / {plat.arch}）暂不支持自动源安装，请确认使用支持 firewall4 的 OpenWrt 24.10 / 25.12 / SNAPSHOT。
+            </div>
+          )}
+          {isGuest && (
+            <div style={{ marginTop: '8px', fontSize: '12px', color: 'var(--amber)' }}>
+              LAN 免登录访客会话无权安装软件包，请切换为路由器管理员登录后操作。
+            </div>
+          )}
+        </div>
+      )}
+
       <div class="grid-2">
         <div class="card">
           <div class="card-header">
             <h3 class="card-title">系统依赖与版本</h3>
-            <span class="badge badge-accent">OpenWrt {props.capabilities?.versions.openwrt || '未知'}</span>
+            <span class="badge badge-accent">
+              {plat?.distrib_id || 'OpenWrt'} {props.capabilities?.versions.openwrt || '未知'}
+            </span>
           </div>
           {checkRow('Nikki 服务包 (/etc/init.d/nikki)', deps?.nikki_installed, `版本: ${props.capabilities?.versions.nikki || '未安装'}`)}
           {checkRow('Mihomo 核心 (/usr/bin/mihomo)', deps?.mihomo_installed, `版本: ${props.capabilities?.versions.core || '未安装'}`)}
@@ -128,7 +198,7 @@ export function OnboardingPage(props: {
                 </span>
               )}
             </div>
-            <button class="btn btn-primary" type="submit" disabled={busy || !subUrl.trim()}>
+            <button class="btn btn-primary" type="submit" disabled={busy || !subUrl.trim() || !coreReady}>
               保存并更新订阅
             </button>
           </form>
@@ -155,7 +225,7 @@ export function OnboardingPage(props: {
             />
           </div>
           <div class="row">
-            <button class="btn btn-primary" type="submit" disabled={busy || !yamlContent.trim()}>
+            <button class="btn btn-primary" type="submit" disabled={busy || !yamlContent.trim() || !coreReady}>
               校验并导入为活动配置
             </button>
           </div>

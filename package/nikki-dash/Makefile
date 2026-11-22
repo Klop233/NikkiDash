@@ -1,7 +1,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=nikki-dash
-PKG_VERSION:=0.1.0
+PKG_VERSION:=0.2.0
 PKG_RELEASE:=1
 PKG_LICENSE:=MIT
 PKG_MAINTAINER:=Klop233
@@ -16,7 +16,7 @@ define Package/nikki-dash
   TITLE:=NikkiDash - Standalone modern web dashboard for Nikki (Mihomo)
   URL:=https://github.com/Klop233/NikkiDash
   PKGARCH:=all
-  DEPENDS:=+nikki +rpcd +rpcd-mod-ucode +uhttpd +uhttpd-mod-ubus +curl +yq +ucode +ucode-mod-fs +ucode-mod-uci +ucode-mod-ubus +ucode-mod-math
+  DEPENDS:=+rpcd +rpcd-mod-ucode +uhttpd +uhttpd-mod-ubus +curl +yq +ucode +ucode-mod-fs +ucode-mod-uci +ucode-mod-ubus +ucode-mod-math
 endef
 
 define Package/nikki-dash/description
@@ -55,6 +55,7 @@ define Package/nikki-dash/install
 	$(INSTALL_DATA) $(CURDIR)/files/usr/share/nikki-dash/lib/files.uc $(1)/usr/share/nikki-dash/lib/files.uc
 	$(INSTALL_DATA) $(CURDIR)/files/usr/share/nikki-dash/lib/tx.uc $(1)/usr/share/nikki-dash/lib/tx.uc
 	$(INSTALL_DATA) $(CURDIR)/files/usr/share/nikki-dash/lib/access.uc $(1)/usr/share/nikki-dash/lib/access.uc
+	$(INSTALL_DATA) $(CURDIR)/files/usr/share/nikki-dash/lib/core.uc $(1)/usr/share/nikki-dash/lib/core.uc
 	$(INSTALL_DATA) $(CURDIR)/files/usr/share/nikki-dash/lib/diagnostics.uc $(1)/usr/share/nikki-dash/lib/diagnostics.uc
 
 	$(INSTALL_DIR) $(1)/usr/libexec/nikki-dash

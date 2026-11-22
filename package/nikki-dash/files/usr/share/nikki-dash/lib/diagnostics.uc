@@ -9,6 +9,7 @@ import {
 } from '/usr/share/nikki-dash/lib/common.uc';
 import { load_schema, read_nikki_config } from '/usr/share/nikki-dash/lib/schema.uc';
 import { resolve_controller, controller_public_info } from '/usr/share/nikki-dash/lib/mihomo.uc';
+import { detect_platform } from '/usr/share/nikki-dash/lib/core.uc';
 
 export function detect_conflicts(ubus) {
 	let candidates = ['openclash', 'passwall', 'passwall2', 'homeproxy', 'shadowsocksr', 'dae', 'daed', 'momo'];
@@ -36,18 +37,9 @@ export function detect_conflicts(ubus) {
 	return conflicts;
 };
 
-export function get_versions() {
-	let nikki_ver = '';
-	if (cmd_exists('opkg')) {
-		let r = exec_argv(['opkg', 'list-installed', 'nikki']);
-		if (r.code == 0 && length(trim(r.stdout)) > 0) {
-			let parts = split(trim(r.stdout), /[ \t\r\n]+/);
-			nikki_ver = parts[2] ?? '';
-		}
-	} else if (cmd_exists('apk')) {
-		let r = exec_argv(['apk', 'info', '-e', 'nikki']);
-		if (r.code == 0) nikki_ver = trim(r.stdout);
-	}
+export function get_versions(plat_in) {
+	let plat = plat_in ?? detect_platform();
+	let nikki_ver = plat.nikki_version ?? '';
 
 	let core_ver = '';
 	if (cmd_exists('mihomo')) {
@@ -65,26 +57,22 @@ export function get_versions() {
 		}
 	}
 
-	let openwrt_ver = '';
-	let rel = readfile('/etc/openwrt_release') ?? '';
-	let rm = match(rel, /DISTRIB_RELEASE='([^']+)'/);
-	if (rm) openwrt_ver = rm[1];
-
 	return {
 		dash: DASH_VERSION,
 		nikki: nikki_ver,
 		core: core_ver,
-		openwrt: openwrt_ver
+		openwrt: plat.distrib_release ?? ''
 	};
 };
 
 export function get_capabilities(ubus, caller) {
 	let schema = load_schema();
-	let versions = get_versions();
+	let plat = detect_platform();
+	let versions = get_versions(plat);
 	let conflicts = detect_conflicts(ubus);
-	let nikki_installed = access('/etc/init.d/nikki', 'x') && access('/etc/config/nikki', 'r');
-	let mihomo_installed = cmd_exists('mihomo');
-	let fw4_available = cmd_exists('fw4') || cmd_exists('nft');
+	let nikki_installed = plat.nikki_installed;
+	let mihomo_installed = plat.mihomo_installed;
+	let fw4_available = plat.fw4_available || cmd_exists('nft');
 	let yq_available = cmd_exists('yq');
 	let curl_available = cmd_exists('curl');
 	let ssl_available = access('/lib/libustream-ssl.so', 'r') || access('/usr/lib/libustream-ssl.so', 'r');
@@ -93,6 +81,7 @@ export function get_capabilities(ubus, caller) {
 		versions: versions,
 		schema_version: schema?.schema_version ?? 'unknown',
 		upstream_locked: schema?.upstream ?? {},
+		platform: plat,
 		dependencies: {
 			nikki_installed: nikki_installed,
 			mihomo_installed: mihomo_installed,
@@ -108,7 +97,8 @@ export function get_capabilities(ubus, caller) {
 		features: {
 			chunked_upload: true,
 			polling_mode: true,
-			websocket_streaming: false
+			websocket_streaming: false,
+			integrated_core_manager: true
 		}
 	});
 };
@@ -151,18 +141,37 @@ export function get_system_identifiers(ubus) {
 		}
 	}
 
+	let hosts_map = {};
+	// Read DHCP leases and ARP table directly (never call rpcd-hosted luci-rpc from inside rpcd!)
+	let leases = readfile('/tmp/dhcp.leases') ?? '';
+	for (let line in split(leases, '\n')) {
+		let cols = split(trim(line), /[ \t]+/);
+		if (length(cols) < 4) continue;
+		let mac = uc(cols[1]);
+		let ip = cols[2];
+		let hname = (cols[3] == '*') ? '' : cols[3];
+		if (!hosts_map[mac]) hosts_map[mac] = { mac: mac, name: hname, ipaddrs: [], ip6addrs: [] };
+		if (length(hname) > 0 && length(hosts_map[mac].name) == 0) hosts_map[mac].name = hname;
+		if (index(ip, ':') >= 0) push(hosts_map[mac].ip6addrs, ip);
+		else push(hosts_map[mac].ipaddrs, ip);
+	}
+	let arp = readfile('/proc/net/arp') ?? '';
+	let arp_lines = split(arp, '\n');
+	for (let i = 1; i < length(arp_lines); i++) {
+		let cols = split(trim(arp_lines[i]), /[ \t]+/);
+		if (length(cols) < 4) continue;
+		let ip = cols[0];
+		let mac = uc(cols[3]);
+		if (mac == '00:00:00:00:00:00' || !match(mac, /^[0-9A-F:]{17}$/)) continue;
+		if (!hosts_map[mac]) hosts_map[mac] = { mac: mac, name: '', ipaddrs: [], ip6addrs: [] };
+		push(hosts_map[mac].ipaddrs, ip);
+	}
 	let hosts = [];
-	let hints = ubus.call('luci-rpc', 'getHostHints', {});
-	if (hints && type(hints) == 'object') {
-		for (let mac in hints) {
-			let h = hints[mac];
-			push(hosts, {
-				mac: mac,
-				name: h?.name ?? '',
-				ipaddrs: h?.ipaddrs ?? [],
-				ip6addrs: h?.ip6addrs ?? []
-			});
-		}
+	for (let mac in hosts_map) {
+		let h = hosts_map[mac];
+		h.ipaddrs = uniq(h.ipaddrs);
+		h.ip6addrs = uniq(h.ip6addrs);
+		push(hosts, h);
 	}
 
 	return {

@@ -46,6 +46,19 @@ sync_guest_account() {
 	fi
 }
 
+wait_port_free() {
+	local p="$1"
+	local i=0
+	while [ "$i" -lt 4 ]; do
+		if ucode -S "$NETCHECK" check_port "$p" >/dev/null 2>&1; then
+			return 0
+		fi
+		i=$((i + 1))
+		sleep 1
+	done
+	return 1
+}
+
 start_service() {
 	clear_err
 	config_load nikki_dash
@@ -103,13 +116,13 @@ start_service() {
 			log_err "WAN HTTPS mode requires readable cert ($cert) and key ($key)"
 			return 1
 		fi
-		if ! ucode -S "$NETCHECK" check_port "$https_port" >/dev/null 2>&1; then
+		if ! wait_port_free "$https_port"; then
 			log_err "HTTPS port $https_port is already in use by another process"
 			return 1
 		fi
 		listen_https_addrs="0.0.0.0:${https_port} [::]:${https_port}"
 	else
-		if ! ucode -S "$NETCHECK" check_port "$http_port" >/dev/null 2>&1; then
+		if ! wait_port_free "$http_port"; then
 			log_err "HTTP port $http_port is already in use by another process"
 			return 1
 		fi

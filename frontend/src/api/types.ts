@@ -21,6 +21,25 @@ export interface SessionState {
   expiresAt: number;
 }
 
+export interface CorePlatformInfo {
+  distrib_id: string;
+  distrib_release: string;
+  arch: string;
+  branch: string;
+  pkg_mgr: 'apk' | 'opkg' | 'unknown';
+  fw4_available: boolean;
+  supported: boolean;
+  feed_url: string;
+  feed_configured: boolean;
+  nikki_installed: boolean;
+  nikki_version: string;
+  mihomo_installed: boolean;
+  mihomo_variant: 'meta' | 'alpha' | 'custom' | '';
+  mihomo_pkg_version: string;
+  luci_nikki_installed: boolean;
+  luci_packages: string[];
+}
+
 export interface CapabilitiesResponse {
   ok: boolean;
   versions: {
@@ -31,6 +50,7 @@ export interface CapabilitiesResponse {
   };
   schema_version: string;
   upstream_locked: Record<string, string>;
+  platform?: CorePlatformInfo;
   dependencies: {
     nikki_installed: boolean;
     mihomo_installed: boolean;
@@ -45,6 +65,7 @@ export interface CapabilitiesResponse {
     chunked_upload: boolean;
     polling_mode: boolean;
     websocket_streaming: boolean;
+    integrated_core_manager?: boolean;
   };
 }
 
@@ -69,7 +90,7 @@ export interface TaskStep {
 
 export interface AsyncTask {
   id: string;
-  kind: 'apply_config' | 'service_action' | 'update_subscription';
+  kind: 'apply_config' | 'service_action' | 'update_subscription' | 'install_core' | 'remove_luci_nikki';
   idempotency_key: string;
   status: 'queued' | 'running' | 'succeeded' | 'failed' | 'rolled_back' | 'rollback_failed' | 'unknown';
   stage: string;

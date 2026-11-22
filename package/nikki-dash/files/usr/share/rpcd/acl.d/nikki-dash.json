@@ -30,7 +30,8 @@
           "list_backups",
           "get_task",
           "list_tasks",
-          "get_access"
+          "get_access",
+          "get_core_status"
         ],
         "session": [
           "access",
@@ -62,7 +63,9 @@
           "apply_config",
           "service_action",
           "update_subscription",
-          "set_access"
+          "set_access",
+          "install_core",
+          "remove_luci_nikki"
         ],
         "session": [
           "destroy"
@@ -91,7 +94,8 @@
           "list_backups",
           "get_task",
           "list_tasks",
-          "get_access"
+          "get_access",
+          "get_core_status"
         ],
         "session": [
           "access",

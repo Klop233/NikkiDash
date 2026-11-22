@@ -2,20 +2,36 @@
 
 ## 1. 环境要求
 
-- OpenWrt `>= 24.10`（kernel `>= 5.13`，`firewall4`）
-- 已安装 `nikki` 服务包及对应架构的 `mihomo` 核心（**无需**安装 `luci-app-nikki`）
+- OpenWrt / ImmortalWrt `>= 24.10`（支持 `24.10` `opkg` 与 `25.12+` `apk`，需 `firewall4`）
+- **无需预先手动安装 `nikki` 或 `luci-app-nikki`**：可通过一键脚本自动装齐 `nikki` + `mihomo` 核心与 NikkiDash，或在安装 NikkiDash 后于网页内**一键安装/更新 Nikki 核心**。
 - 基础依赖：`rpcd`, `rpcd-mod-ucode`, `uhttpd`, `uhttpd-mod-ubus`, `curl`, `yq`, `ucode` 及其基础模块
 
 ## 2. 安装与首次访问
 
-将 GitHub Releases 下载的 `nikki-dash_<version>_all.ipk` 上传到路由器 `/tmp/` 后执行：
+### 方式 A：一键安装脚本（推荐，自动集成安装 Nikki + Mihomo 核心与 NikkiDash）
 
 ```sh
-opkg update
-opkg install /tmp/nikki-dash_*_all.ipk
+curl -fsSL https://raw.githubusercontent.com/Klop233/NikkiDash/main/install.sh | sh
 ```
 
-（若使用 OpenWrt 25.12+ `apk`，请使用对应 `.apk` 或构建脚本输出。）
+常用参数：
+- `--remove-luci`：安装完成后自动卸载旧版 `luci-app-nikki` 与 `luci-i18n-nikki-*`（完整保留核心 `nikki` 与 `/etc/config/nikki`）
+- `--core-variant=alpha`：使用 `mihomo-alpha`（默认 `meta` 即 `mihomo-meta`）
+- `--upgrade`：强制同步升级现有 `nikki` 与 `mihomo`
+- `--skip-core`：仅安装 NikkiDash（稍后可在面板网页中点击一键安装核心）
+
+### 方式 B：手动安装安装包（支持单独安装，进网页后再一键装核心）
+
+- **OpenWrt 24.10 (`opkg`)**：
+  ```sh
+  opkg update
+  opkg install /tmp/nikki-dash_*_all.ipk
+  ```
+- **OpenWrt / ImmortalWrt 25.12+ (`apk`)**：
+  ```sh
+  apk update
+  apk add --allow-untrusted /tmp/nikki-dash-*.apk
+  ```
 
 安装后默认行为：
 - **不修改** `/etc/config/nikki`，保留你原有的 Nikki 订阅与规则配置。
@@ -25,10 +41,14 @@ opkg install /tmp/nikki-dash_*_all.ipk
 
 ### 卸载旧的 `luci-app-nikki`（可选）
 
-确认 NikkiDash 正常运行后，如果不再需要原 LuCI 网页界面，可仅卸载 `luci-app-nikki`（**切勿卸载 `nikki` 核心服务包**）：
+确认 NikkiDash 正常运行后，可以直接在 NikkiDash「面板设置 → Nikki 核心集成与旧版 LuCI 管理」一键卸载，或在 SSH 执行（**切勿卸载 `nikki` 核心服务包**）：
 
 ```sh
-opkg remove luci-app-nikki
+# OpenWrt 25.12+ (apk)
+apk del luci-i18n-nikki-zh-cn luci-app-nikki
+
+# OpenWrt 24.10 (opkg)
+opkg remove luci-i18n-nikki-zh-cn luci-app-nikki
 ```
 
 ## 3. 升级与卸载

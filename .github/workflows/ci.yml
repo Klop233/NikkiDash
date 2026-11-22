@@ -32,8 +32,10 @@ jobs:
       - name: Build Frontend SPA
         run: node scripts/build-frontend.mjs
 
-      - name: Build deterministic IPK
-        run: node scripts/build-ipk.mjs
+      - name: Build deterministic IPK & APK packages
+        run: |
+          node scripts/build-ipk.mjs
+          node scripts/build-apk.mjs
 
       - name: Verify live OpenWrt 24.10 container integration
         run: |
@@ -41,10 +43,11 @@ jobs:
           docker import /tmp/owrt2410.tar.gz openwrt-24.10-ci:latest
           docker run --rm -v "$PWD:/mnt:ro" openwrt-24.10-ci:latest /bin/sh /mnt/scripts/verify-openwrt-docker.sh
 
-      - name: Upload IPK artifact
+      - name: Upload IPK & APK artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: nikki-dash-ipk
+          name: nikki-dash-packages
           path: |
             dist/*.ipk
+            dist/*.apk
             dist/SHA256SUMS

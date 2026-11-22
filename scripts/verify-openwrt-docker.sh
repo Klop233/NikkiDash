@@ -121,15 +121,7 @@ exit 0
 EOF
 chmod +x /etc/init.d/nikki
 
-# Register mock installed `nikki` in opkg status (simulating router with nikki already installed)
-cat >> /usr/lib/opkg/status <<'EOF'
-
-Package: nikki
-Version: 2026.10.10-1
-Status: install user installed
-Architecture: x86_64
-EOF
-
+# Do NOT pre-register nikki in opkg status: verify nikki-dash installs standalone without nikki!
 PRE_HASH="$(sha256sum /etc/config/nikki | awk '{print $1}')"
 
 echo "=== 2. Verify & unpack built .ipk package ==="
@@ -291,6 +283,11 @@ rpc_call() {
 
 CAPS="$(rpc_call nikki-dash capabilities '{}')"
 echo "$CAPS" | grep -q '"authenticated":true' || fail "capabilities did not detect authenticated session: $CAPS"
+echo "$CAPS" | grep -q '"integrated_core_manager":true' || fail "capabilities missing integrated_core_manager: $CAPS"
+
+CORE_ST="$(rpc_call nikki-dash get_core_status '{}')"
+echo "$CORE_ST" | grep -q '"pkg_mgr":"opkg"' || fail "get_core_status failed: $CORE_ST"
+echo "$CORE_ST" | grep -q '"branch":"openwrt-24.10"' || fail "get_core_status branch detection failed: $CORE_ST"
 
 # Mihomo allowlisted APIs (loopback + 0600 curl secret config)
 PROXIES="$(rpc_call nikki-dash get_proxies '{}')"
@@ -413,6 +410,12 @@ echo "$G_STATUS" | grep -q '"ok":true' || fail "Guest get_status failed: $G_STAT
 
 G_SETACC="$(curl -fsS -X POST http://127.0.0.1:18080/ubus/call/nikki-dash -H 'Content-Type: application/json' -H "Authorization: Bearer $GSID" -d '{"jsonrpc":"2.0","id":22,"method":"set_access","params":{"access_mode":"wan_https"}}')"
 echo "$G_SETACC" | grep -q '"code":-32002' || fail "Guest set_access must be DENIED! Got: $G_SETACC"
+
+G_CORE="$(curl -fsS -X POST http://127.0.0.1:18080/ubus/call/nikki-dash -H 'Content-Type: application/json' -H "Authorization: Bearer $GSID" -d '{"jsonrpc":"2.0","id":221,"method":"install_core","params":{"core_variant":"meta"}}')"
+echo "$G_CORE" | grep -q '"code":-32002' || fail "Guest install_core must be DENIED! Got: $G_CORE"
+
+G_RMLUCI="$(curl -fsS -X POST http://127.0.0.1:18080/ubus/call/nikki-dash -H 'Content-Type: application/json' -H "Authorization: Bearer $GSID" -d '{"jsonrpc":"2.0","id":222,"method":"remove_luci_nikki","params":{}}')"
+echo "$G_RMLUCI" | grep -q '"code":-32002' || fail "Guest remove_luci_nikki must be DENIED! Got: $G_RMLUCI"
 
 G_UCI="$(curl -fsS -X POST http://127.0.0.1:18080/ubus/call/uci -H 'Content-Type: application/json' -H "Authorization: Bearer $GSID" -d '{"jsonrpc":"2.0","id":23,"method":"get","params":{"config":"nikki"}}')"
 echo "$G_UCI" | grep -q '"code":-32002\|"code":-32000' || fail "Guest generic uci must be DENIED! Got: $G_UCI"

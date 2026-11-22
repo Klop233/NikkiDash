@@ -35,8 +35,10 @@ jobs:
       - name: Build Frontend SPA
         run: node scripts/build-frontend.mjs
 
-      - name: Build OpenWrt IPK (PKGARCH=all)
-        run: node scripts/build-ipk.mjs
+      - name: Build OpenWrt IPK (24.10 opkg) & APK (25.12+ apk)
+        run: |
+          node scripts/build-ipk.mjs
+          node scripts/build-apk.mjs
 
       - name: Run OpenWrt 24.10 Live Container Verification (real opkg + uhttpd + rpcd + ucode)
         run: |
@@ -50,6 +52,7 @@ jobs:
           name: nikki-dash-release
           path: |
             dist/*.ipk
+            dist/*.apk
             dist/SHA256SUMS
 
       - name: Publish GitHub Release
@@ -59,4 +62,5 @@ jobs:
           generate_release_notes: true
           files: |
             dist/*.ipk
+            dist/*.apk
             dist/SHA256SUMS

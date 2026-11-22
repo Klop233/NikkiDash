@@ -27,8 +27,10 @@ describe('Static security invariants for OpenWrt package', () => {
       }
     }
 
-    // Guest ACL must NOT include set_access
+    // Guest ACL must NOT include set_access or package management RPCs
     expect(acl['nikki-dash-guest'].write.ubus['nikki-dash']).not.toContain('set_access');
+    expect(acl['nikki-dash-guest'].write.ubus['nikki-dash']).not.toContain('install_core');
+    expect(acl['nikki-dash-guest'].write.ubus['nikki-dash']).not.toContain('remove_luci_nikki');
   });
 
   it('init.d script never passes -a (no_ubusauth) or -X (CORS) and defaults to lan_auth on port 18080', () => {
@@ -43,21 +45,27 @@ describe('Static security invariants for OpenWrt package', () => {
     expect(defaultCfg).toContain("option wan_risk_acknowledged '0'");
   });
 
-  it('Makefile does not depend on luci-app-nikki and never modifies /etc/config/nikki in postinst', () => {
+  it('Makefile does not hard-depend on nikki or luci-app-nikki and never modifies /etc/config/nikki in postinst', () => {
     const mk = readFileSync(path.join(pkgRoot, 'Makefile'), 'utf8');
     const dependsMatch = mk.match(/^  DEPENDS:=.+$/m);
     expect(dependsMatch).not.toBeNull();
     expect(dependsMatch![0]).not.toContain('luci-app-nikki');
+    expect(dependsMatch![0]).not.toMatch(/\+nikki(\s|$)/);
     expect(mk).toContain('PKGARCH:=all');
     expect(mk).toContain('/etc/config/nikki_dash');
     expect(mk).not.toMatch(/\/etc\/init\.d\/nikki\s+(start|restart|enable)/);
   });
 
-  it('backend ucode never exposes a generic Mihomo passthrough method', () => {
+  it('backend ucode never exposes a generic Mihomo passthrough method or calls rpcd-hosted objects synchronously', () => {
     const rpc = readFileSync(path.join(pkgRoot, 'files/usr/share/rpcd/ucode/nikki-dash'), 'utf8');
     const mihomo = readFileSync(path.join(pkgRoot, 'files/usr/share/nikki-dash/lib/mihomo.uc'), 'utf8');
+    const diag = readFileSync(path.join(pkgRoot, 'files/usr/share/nikki-dash/lib/diagnostics.uc'), 'utf8');
+    const access = readFileSync(path.join(pkgRoot, 'files/usr/share/nikki-dash/lib/access.uc'), 'utf8');
     expect(rpc).not.toMatch(/\bapi\s*:\s*\{/);
     expect(mihomo).not.toMatch(/export function mihomo_request/);
     expect(mihomo).not.toContain('popen(');
+    for (const src of [rpc, mihomo, diag, access]) {
+      expect(src).not.toMatch(/ubus\.call\s*\(\s*['"](session|luci-rpc|luci|uci|file|iwinfo|rc)['"]/);
+    }
   });
 });

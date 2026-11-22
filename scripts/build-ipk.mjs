@@ -120,14 +120,14 @@ const dataTarGz = gzipSync(buildTar(dataEntries), { level: 9 });
 const controlText = [
   `Package: ${pkgName}`,
   `Version: ${fullVersion}`,
-  'Depends: nikki, rpcd, rpcd-mod-ucode, uhttpd, uhttpd-mod-ubus, curl, yq, ucode, ucode-mod-fs, ucode-mod-uci, ucode-mod-ubus, ucode-mod-math',
+  'Depends: rpcd, rpcd-mod-ucode, uhttpd, uhttpd-mod-ubus, curl, yq, ucode, ucode-mod-fs, ucode-mod-uci, ucode-mod-ubus, ucode-mod-math',
   'Section: net',
   'Architecture: all',
   `Installed-Size: ${installedSize}`,
   'Maintainer: Klop233',
   'License: MIT',
   'URL: https://github.com/Klop233/NikkiDash',
-  'Description: Standalone modern Clash-inspired web dashboard for Nikki (Mihomo) on OpenWrt >=24.10.',
+  'Description: Standalone modern Clash-inspired web dashboard for Nikki (Mihomo) on OpenWrt >=24.10 with integrated Nikki core management.',
   ''
 ].join('\n');
 
