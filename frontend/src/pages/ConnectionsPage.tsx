@@ -3,6 +3,7 @@ import { nikkiApi } from '../api/nikki';
 import { usePolling } from '../hooks/usePolling';
 import { StateView } from '../components/StateView';
 import { ConfirmModal } from '../components/ConfirmModal';
+import { IconChevronLeft, IconChevronRight, IconSearch } from '../components/Icons';
 import { formatBytes, formatHostPort, formatTimeAgo } from '../utils/format';
 import type { ConnectionItem } from '../api/types';
 
@@ -138,7 +139,7 @@ export function ConnectionsPage(props: {
     return <StateView kind="empty" title="Nikki 未运行" message="启动 Nikki 后将实时展示路由器连接表。" />;
   }
   if (loading && conns.length === 0) {
-    return <StateView kind="loading" title="正在加载活跃连接..." />;
+    return <StateView kind="loading" title="正在加载活跃连接" message="正在从 Mihomo 控制器读取连接列表" />;
   }
   if (error && conns.length === 0) {
     return <StateView kind="error" title="无法读取连接" message={error} actionLabel="重试" onAction={refresh} />;
@@ -148,36 +149,46 @@ export function ConnectionsPage(props: {
     <div>
       <div class="page-header">
         <div>
-          <h2 class="page-title">活跃连接 ({filtered.length})</h2>
+          <h1 class="page-title">活跃连接 ({filtered.length})</h1>
           <p class="page-desc">
-            累计下行 {formatBytes(totals.down)} · 累计上行 {formatBytes(totals.up)} · 内存 {formatBytes(totals.mem)} · 点击任意行查看详情
+            累计下行 <span class="mono">{formatBytes(totals.down)}</span> · 累计上行{' '}
+            <span class="mono">{formatBytes(totals.up)}</span> · 内存 <span class="mono">{formatBytes(totals.mem)}</span> ·
+            点击任意行查看详情
           </p>
         </div>
-        <div class="row">
-          <button class={`btn ${paused ? 'btn-primary' : ''}`} onClick={() => setPaused((p) => !p)}>
-            {paused ? '继续刷新' : '暂停刷新'}
-          </button>
-          <button class="btn btn-danger" onClick={() => setConfirmCloseAll(true)} disabled={conns.length === 0}>
+        <div class="row" style={{ gap: '12px' }}>
+          <button type="button" class="btn btn-danger" onClick={() => setConfirmCloseAll(true)} disabled={conns.length === 0}>
             关闭全部连接
+          </button>
+          <button
+            type="button"
+            class={`btn ${paused ? 'btn-primary' : ''}`}
+            onClick={() => setPaused((p) => !p)}
+          >
+            {paused ? '继续刷新' : '暂停刷新'}
           </button>
         </div>
       </div>
 
-      <div class="card" style={{ marginBottom: '14px' }}>
-        <div class="row">
-          <input
-            class="input"
-            style={{ maxWidth: '300px' }}
-            placeholder="搜索域名 / IP / 进程 / 规则 / 链路..."
-            value={search}
-            onInput={(e) => {
-              setSearch((e.currentTarget as HTMLInputElement).value);
-              setPage(1);
-            }}
-          />
+      <section class="card-flush" aria-label="活跃连接列表">
+        <div class="card-toolbar">
+          <label class="search-box" style={{ maxWidth: '320px' }}>
+            <IconSearch />
+            <input
+              type="search"
+              aria-label="筛选连接"
+              placeholder="搜索域名、IP、进程、规则或链路"
+              value={search}
+              onInput={(e) => {
+                setSearch((e.currentTarget as HTMLInputElement).value);
+                setPage(1);
+              }}
+            />
+          </label>
           <select
             class="select"
-            style={{ maxWidth: '130px' }}
+            aria-label="协议筛选"
+            style={{ maxWidth: '140px' }}
             value={netFilter}
             onChange={(e) => {
               setNetFilter((e.currentTarget as HTMLSelectElement).value as 'all' | 'tcp' | 'udp');
@@ -190,7 +201,8 @@ export function ConnectionsPage(props: {
           </select>
           <select
             class="select"
-            style={{ maxWidth: '150px' }}
+            aria-label="排序方式"
+            style={{ maxWidth: '160px' }}
             value={sortBy}
             onChange={(e) =>
               setSortBy((e.currentTarget as HTMLSelectElement).value as 'time' | 'download' | 'upload' | 'speed' | 'host')
@@ -202,15 +214,21 @@ export function ConnectionsPage(props: {
             <option value="upload">按上传量</option>
             <option value="host">按目标域名</option>
           </select>
-          {search && (
-            <button class="btn btn-sm btn-ghost" onClick={() => setSearch('')}>
-              清除
+          {(search || netFilter !== 'all') && (
+            <button
+              type="button"
+              class="btn btn-ghost"
+              onClick={() => {
+                setSearch('');
+                setNetFilter('all');
+                setPage(1);
+              }}
+            >
+              清除筛选
             </button>
           )}
         </div>
-      </div>
 
-      <div class="card">
         <div class="table-wrap">
           <table class="data-table">
             <thead>
@@ -220,16 +238,16 @@ export function ConnectionsPage(props: {
                 <th>协议</th>
                 <th>规则</th>
                 <th>代理链</th>
-                <th>流量 / 速率</th>
+                <th class="th-right">流量 / 速率</th>
                 <th>建立时间</th>
-                <th>操作</th>
+                <th class="th-right">操作</th>
               </tr>
             </thead>
             <tbody>
               {pageItems.length === 0 ? (
                 <tr>
-                  <td colSpan={8} style={{ textAlign: 'center', padding: '28px', color: 'var(--text-muted)' }}>
-                    没有匹配的连接记录
+                  <td colSpan={8} style={{ textAlign: 'center', padding: '40px 16px', color: 'var(--text-muted)' }}>
+                    {search ? `没有找到「${search}」相关的连接` : '当前没有活跃连接'}
                   </td>
                 </tr>
               ) : (
@@ -241,37 +259,41 @@ export function ConnectionsPage(props: {
                   const sp = speeds[c.id];
                   return (
                     <tr key={c.id} class="clickable-row" onClick={() => setDetailConn(c)}>
-                      <td class="mono" style={{ maxWidth: '260px', wordBreak: 'break-all' }}>
+                      <td class="mono" style={{ maxWidth: '280px', wordBreak: 'break-all' }}>
                         {dest}
                       </td>
-                      <td class="mono" style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                      <td class="mono" style={{ color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
                         {src}
                       </td>
                       <td>
-                        <span class="badge">{(c.metadata?.network || '-').toUpperCase()}</span>
+                        <span class="badge mono">{(c.metadata?.network || '—').toUpperCase()}</span>
                       </td>
-                      <td style={{ fontSize: '12px' }}>
+                      <td>
                         {c.rule}
                         {c.rulePayload ? `(${c.rulePayload})` : ''}
                       </td>
-                      <td style={{ fontSize: '12px', color: 'var(--accent)' }}>
+                      <td style={{ color: 'var(--accent-text)', fontWeight: 500 }}>
                         {[...(c.chains || [])].reverse().join(' → ')}
                       </td>
-                      <td class="mono" style={{ fontSize: '12px', whiteSpace: 'nowrap' }}>
+                      <td class="mono td-right" style={{ whiteSpace: 'nowrap' }}>
                         <div>
                           ↓ {formatBytes(c.download)} / ↑ {formatBytes(c.upload)}
                         </div>
                         {sp && (sp.down > 0 || sp.up > 0) && (
-                          <div style={{ fontSize: '11px', color: 'var(--green)' }}>
+                          <div style={{ color: 'var(--success)' }}>
                             ↓ {formatBytes(sp.down, true)} · ↑ {formatBytes(sp.up, true)}
                           </div>
                         )}
                       </td>
-                      <td style={{ fontSize: '12px', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
+                      <td class="mono" style={{ color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
                         {formatTimeAgo(c.start)}
                       </td>
-                      <td>
-                        <button class="btn btn-sm btn-danger" onClick={(e) => void handleCloseOne(c.id, e)}>
+                      <td class="td-right">
+                        <button
+                          type="button"
+                          class="op-btn op-btn-danger"
+                          onClick={(e) => void handleCloseOne(c.id, e)}
+                        >
                           断开
                         </button>
                       </td>
@@ -283,76 +305,93 @@ export function ConnectionsPage(props: {
           </table>
         </div>
 
-        {totalPages > 1 && (
-          <div class="row-between" style={{ marginTop: '14px' }}>
-            <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-              第 {safePage} / {totalPages} 页（共 {filtered.length} 条）
-            </span>
-            <div class="row">
-              <button class="btn btn-sm" disabled={safePage <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>
-                上一页
+        <div class="card-footer">
+          <span>
+            共 <span class="mono">{filtered.length}</span> 条连接
+            {totalPages > 1 ? ` · 第 ${safePage} / ${totalPages} 页` : ''}
+          </span>
+          {totalPages > 1 && (
+            <nav class="pagination" aria-label="连接分页">
+              <button
+                type="button"
+                class="page-btn"
+                aria-label="上一页"
+                disabled={safePage <= 1}
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+              >
+                <IconChevronLeft />
               </button>
-              <button class="btn btn-sm" disabled={safePage >= totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))}>
-                下一页
+              <span class="page-btn active" aria-current="page">
+                {safePage}
+              </span>
+              <button
+                type="button"
+                class="page-btn"
+                aria-label="下一页"
+                disabled={safePage >= totalPages}
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              >
+                <IconChevronRight />
               </button>
-            </div>
-          </div>
-        )}
-      </div>
+            </nav>
+          )}
+        </div>
+      </section>
 
-      {/* Connection Detail Modal */}
       {detailConn && (
         <div
           class="modal-overlay"
           role="dialog"
           aria-modal="true"
+          aria-label="连接详情"
           onClick={(e) => {
             if (e.target === e.currentTarget) setDetailConn(null);
           }}
         >
-          <div class="modal-card" style={{ maxWidth: '540px' }}>
-            <div class="row-between" style={{ marginBottom: '12px' }}>
-              <h3 style={{ margin: 0 }}>连接详情</h3>
-              <span class="badge mono">{(detailConn.metadata?.network || '-').toUpperCase()}</span>
+          <div class="modal-card modal-detail">
+            <div class="row-between">
+              <h2 class="modal-title">连接详情</h2>
+              <span class="badge mono">{(detailConn.metadata?.network || '—').toUpperCase()}</span>
             </div>
-            <div class="kv-grid">
-              <div class="kv-key">连接 ID</div>
-              <div class="kv-val mono">{detailConn.id}</div>
-              <div class="kv-key">目标域名</div>
-              <div class="kv-val mono">{detailConn.metadata?.host || '-'}</div>
-              <div class="kv-key">目标地址</div>
-              <div class="kv-val mono">
+            <dl class="kv-grid">
+              <dt class="kv-key">连接 ID</dt>
+              <dd class="kv-val mono">{detailConn.id}</dd>
+              <dt class="kv-key">目标域名</dt>
+              <dd class="kv-val mono">{detailConn.metadata?.host || '—'}</dd>
+              <dt class="kv-key">目标地址</dt>
+              <dd class="kv-val mono">
                 {formatHostPort(detailConn.metadata?.destinationIP, detailConn.metadata?.destinationPort)}
-              </div>
-              <div class="kv-key">来源地址</div>
-              <div class="kv-val mono">
+              </dd>
+              <dt class="kv-key">来源地址</dt>
+              <dd class="kv-val mono">
                 {formatHostPort(detailConn.metadata?.sourceIP, detailConn.metadata?.sourcePort)}
-              </div>
-              <div class="kv-key">入站类型</div>
-              <div class="kv-val">{detailConn.metadata?.type || '-'}</div>
-              <div class="kv-key">DNS 模式</div>
-              <div class="kv-val">{detailConn.metadata?.dnsMode || '-'}</div>
-              <div class="kv-key">进程名</div>
-              <div class="kv-val mono">{detailConn.metadata?.process || '-'}</div>
-              <div class="kv-key">匹配规则</div>
-              <div class="kv-val mono">
+              </dd>
+              <dt class="kv-key">入站类型</dt>
+              <dd class="kv-val">{detailConn.metadata?.type || '—'}</dd>
+              <dt class="kv-key">DNS 模式</dt>
+              <dd class="kv-val">{detailConn.metadata?.dnsMode || '—'}</dd>
+              <dt class="kv-key">进程名</dt>
+              <dd class="kv-val mono">{detailConn.metadata?.process || '—'}</dd>
+              <dt class="kv-key">匹配规则</dt>
+              <dd class="kv-val mono">
                 {detailConn.rule}
                 {detailConn.rulePayload ? ` (${detailConn.rulePayload})` : ''}
-              </div>
-              <div class="kv-key">代理链路</div>
-              <div class="kv-val" style={{ color: 'var(--accent)' }}>
+              </dd>
+              <dt class="kv-key">代理链路</dt>
+              <dd class="kv-val" style={{ color: 'var(--accent-text)', fontWeight: 500 }}>
                 {[...(detailConn.chains || [])].reverse().join(' → ')}
-              </div>
-              <div class="kv-key">流量统计</div>
-              <div class="kv-val mono">
+              </dd>
+              <dt class="kv-key">流量统计</dt>
+              <dd class="kv-val mono">
                 下行 {formatBytes(detailConn.download)} · 上行 {formatBytes(detailConn.upload)}
-              </div>
-              <div class="kv-key">建立时间</div>
-              <div class="kv-val">{detailConn.start}</div>
-            </div>
+              </dd>
+              <dt class="kv-key">建立时间</dt>
+              <dd class="kv-val mono">{detailConn.start}</dd>
+            </dl>
             <div class="modal-actions">
               {(detailConn.metadata?.host || detailConn.metadata?.destinationIP) && (
                 <button
+                  type="button"
                   class="btn"
                   onClick={() => {
                     const target = detailConn.metadata?.host || detailConn.metadata?.destinationIP || '';
@@ -363,10 +402,10 @@ export function ConnectionsPage(props: {
                   复制目标
                 </button>
               )}
-              <button class="btn btn-danger" onClick={() => void handleCloseOne(detailConn.id)}>
+              <button type="button" class="btn btn-danger" onClick={() => void handleCloseOne(detailConn.id)}>
                 断开此连接
               </button>
-              <button class="btn btn-primary" onClick={() => setDetailConn(null)}>
+              <button type="button" class="btn btn-primary" onClick={() => setDetailConn(null)}>
                 关闭
               </button>
             </div>
@@ -380,7 +419,7 @@ export function ConnectionsPage(props: {
         message="这会立即断开当前所有通过 Mihomo 的活跃连接（客户端通常会自动重连）。"
         danger
         busy={closingAll}
-        confirmLabel="确认关闭全部"
+        confirmLabel="关闭全部连接"
         onConfirm={handleCloseAll}
         onCancel={() => setConfirmCloseAll(false)}
       />

@@ -2,6 +2,7 @@ import { useCallback, useMemo, useState } from 'preact/hooks';
 import { nikkiApi } from '../api/nikki';
 import { usePolling } from '../hooks/usePolling';
 import { StateView } from '../components/StateView';
+import { IconChevronLeft, IconChevronRight, IconInfo, IconSearch } from '../components/Icons';
 import { formatTimeAgo } from '../utils/format';
 import type { ProxyProvider, RuleItem, RuleProvider } from '../api/types';
 
@@ -71,7 +72,7 @@ export function RulesProvidersPage(props: {
     return <StateView kind="empty" title="Nikki 未运行" message="启动 Nikki 后可查看运行时规则与 Providers 状态。" />;
   }
   if (loading && rules.length === 0) {
-    return <StateView kind="loading" title="正在加载规则与 Providers..." />;
+    return <StateView kind="loading" title="正在加载规则与 Providers" />;
   }
   if (error && rules.length === 0) {
     return <StateView kind="error" title="无法读取规则" message={error} actionLabel="重试" onAction={refresh} />;
@@ -84,95 +85,155 @@ export function RulesProvidersPage(props: {
     <div>
       <div class="page-header">
         <div>
-          <h2 class="page-title">规则与 Providers</h2>
-          <p class="page-desc">查看 Mihomo 当前生效的运行时规则与外部规则/代理提供者</p>
+          <h1 class="page-title">规则与提供者</h1>
+          <p class="page-desc">查看 Mihomo 当前生效的运行时规则与外部规则、代理提供者</p>
         </div>
-        <button class="btn" onClick={refresh}>
+        <button type="button" class="btn" onClick={refresh}>
           刷新
         </button>
       </div>
 
-      <div class="alert alert-info">
-        <div>
-          此页面展示的是 Mihomo <strong>运行时内存中的生效规则</strong>。若要持久化新增/修改规则或 Provider，请前往「Nikki 设置 → 规则」或「高级 YAML」编辑并应用。
+      <div class="alert alert-info" role="status">
+        <IconInfo className="alert-icon" />
+        <div class="alert-body">
+          此页面展示 Mihomo <strong>运行时内存中的生效规则</strong>。若要持久化修改规则或 Provider，请前往「Nikki 设置 → 嗅探 / 规则 / GeoX」或「高级 YAML」编辑并应用。
         </div>
       </div>
 
-      <div class="tabs">
-        <button class={`tab-btn ${tab === 'rules' ? 'active' : ''}`} onClick={() => setTab('rules')}>
-          运行时规则 ({rules.length})
+      <div class="tabs" role="tablist" aria-label="规则与提供者分类">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === 'rules'}
+          class={`tab-btn ${tab === 'rules' ? 'active' : ''}`}
+          onClick={() => setTab('rules')}
+        >
+          运行时规则<span class="tab-cnt">{rules.length}</span>
         </button>
-        <button class={`tab-btn ${tab === 'rule_providers' ? 'active' : ''}`} onClick={() => setTab('rule_providers')}>
-          规则 Providers ({rProvList.length})
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === 'rule_providers'}
+          class={`tab-btn ${tab === 'rule_providers' ? 'active' : ''}`}
+          onClick={() => setTab('rule_providers')}
+        >
+          规则 Providers<span class="tab-cnt">{rProvList.length}</span>
         </button>
-        <button class={`tab-btn ${tab === 'proxy_providers' ? 'active' : ''}`} onClick={() => setTab('proxy_providers')}>
-          代理 Providers ({pProvList.length})
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === 'proxy_providers'}
+          class={`tab-btn ${tab === 'proxy_providers' ? 'active' : ''}`}
+          onClick={() => setTab('proxy_providers')}
+        >
+          代理 Providers<span class="tab-cnt">{pProvList.length}</span>
         </button>
       </div>
 
       {tab === 'rules' && (
-        <div class="card">
-          <div class="row" style={{ marginBottom: '12px' }}>
-            <input
-              class="input"
-              style={{ maxWidth: '320px' }}
-              placeholder="搜索规则类型 / 匹配内容 / 目标策略..."
-              value={search}
-              onInput={(e) => {
-                setSearch((e.currentTarget as HTMLInputElement).value);
-                setPage(1);
-              }}
-            />
+        <section class="card-flush" aria-label="运行时规则列表">
+          <div class="card-toolbar">
+            <label class="search-box" style={{ maxWidth: '340px' }}>
+              <IconSearch />
+              <input
+                type="search"
+                aria-label="搜索规则"
+                placeholder="搜索规则类型、匹配内容或目标策略"
+                value={search}
+                onInput={(e) => {
+                  setSearch((e.currentTarget as HTMLInputElement).value);
+                  setPage(1);
+                }}
+              />
+            </label>
+            {search && (
+              <button
+                type="button"
+                class="btn btn-ghost"
+                onClick={() => {
+                  setSearch('');
+                  setPage(1);
+                }}
+              >
+                清除筛选
+              </button>
+            )}
           </div>
           <div class="table-wrap">
             <table class="data-table">
               <thead>
                 <tr>
-                  <th>#</th>
+                  <th style={{ width: '72px' }}>序号</th>
                   <th>类型</th>
                   <th>匹配项</th>
                   <th>目标策略</th>
                 </tr>
               </thead>
               <tbody>
-                {pageRules.map((r, i) => (
-                  <tr key={`${safePage}-${i}`}>
-                    <td style={{ color: 'var(--text-muted)' }}>{(safePage - 1) * PAGE_SIZE + i + 1}</td>
-                    <td>
-                      <span class="badge">{r.type}</span>
-                    </td>
-                    <td class="mono">{r.payload || '-'}</td>
-                    <td>
-                      <span class="badge badge-accent">{r.proxy}</span>
+                {pageRules.length === 0 ? (
+                  <tr>
+                    <td colSpan={4} style={{ textAlign: 'center', padding: '40px 16px', color: 'var(--text-muted)' }}>
+                      {search ? `没有找到「${search}」相关的规则` : '当前没有规则记录'}
                     </td>
                   </tr>
-                ))}
+                ) : (
+                  pageRules.map((r, i) => (
+                    <tr key={`${safePage}-${i}`}>
+                      <td class="mono" style={{ color: 'var(--text-muted)' }}>
+                        {(safePage - 1) * PAGE_SIZE + i + 1}
+                      </td>
+                      <td>
+                        <span class="badge mono">{r.type}</span>
+                      </td>
+                      <td class="mono">{r.payload || '—'}</td>
+                      <td>
+                        <span class="badge badge-accent">{r.proxy}</span>
+                      </td>
+                    </tr>
+                  ))
+                )}
               </tbody>
             </table>
           </div>
-          {totalPages > 1 && (
-            <div class="row-between" style={{ marginTop: '12px' }}>
-              <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                第 {safePage} / {totalPages} 页
-              </span>
-              <div class="row">
-                <button class="btn btn-sm" disabled={safePage <= 1} onClick={() => setPage((p) => p - 1)}>
-                  上一页
+          <div class="card-footer">
+            <span>
+              共 <span class="mono">{filteredRules.length}</span> 条规则
+              {totalPages > 1 ? ` · 第 ${safePage} / ${totalPages} 页` : ''}
+            </span>
+            {totalPages > 1 && (
+              <nav class="pagination" aria-label="规则分页">
+                <button
+                  type="button"
+                  class="page-btn"
+                  aria-label="上一页"
+                  disabled={safePage <= 1}
+                  onClick={() => setPage((p) => p - 1)}
+                >
+                  <IconChevronLeft />
                 </button>
-                <button class="btn btn-sm" disabled={safePage >= totalPages} onClick={() => setPage((p) => p + 1)}>
-                  下一页
+                <span class="page-btn active" aria-current="page">
+                  {safePage}
+                </span>
+                <button
+                  type="button"
+                  class="page-btn"
+                  aria-label="下一页"
+                  disabled={safePage >= totalPages}
+                  onClick={() => setPage((p) => p + 1)}
+                >
+                  <IconChevronRight />
                 </button>
-              </div>
-            </div>
-          )}
-        </div>
+              </nav>
+            )}
+          </div>
+        </section>
       )}
 
-      {tab === 'rule_providers' && (
-        <div class="card">
-          {rProvList.length === 0 ? (
-            <StateView kind="empty" title="未配置规则 Provider" />
-          ) : (
+      {tab === 'rule_providers' &&
+        (rProvList.length === 0 ? (
+          <StateView kind="empty" title="未配置规则 Provider" message="当前运行配置未声明外部 rule-providers。" />
+        ) : (
+          <section class="card-flush" aria-label="规则 Provider 列表">
             <div class="table-wrap">
               <table class="data-table">
                 <thead>
@@ -180,25 +241,30 @@ export function RulesProvidersPage(props: {
                     <th>名称</th>
                     <th>来源 / 行为</th>
                     <th>格式</th>
-                    <th>规则数</th>
+                    <th class="th-right">规则数</th>
                     <th>最后更新</th>
-                    <th>操作</th>
+                    <th class="th-right">操作</th>
                   </tr>
                 </thead>
                 <tbody>
                   {rProvList.map((p) => (
                     <tr key={p.name}>
-                      <td style={{ fontWeight: 600 }}>{p.name}</td>
+                      <td style={{ fontWeight: 500 }}>{p.name}</td>
                       <td>
-                        <span class="badge">{p.vehicleType || p.type}</span>{' '}
-                        <span class="badge badge-purple">{p.behavior || '-'}</span>
+                        <div class="row" style={{ gap: '6px' }}>
+                          <span class="badge">{p.vehicleType || p.type}</span>
+                          <span class="badge badge-accent">{p.behavior || '—'}</span>
+                        </div>
                       </td>
-                      <td>{p.format || '-'}</td>
-                      <td class="mono">{p.ruleCount ?? '-'}</td>
-                      <td style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{formatTimeAgo(p.updatedAt)}</td>
-                      <td>
+                      <td class="mono">{p.format || '—'}</td>
+                      <td class="mono td-right">{p.ruleCount ?? '—'}</td>
+                      <td class="mono" style={{ color: 'var(--text-muted)' }}>
+                        {formatTimeAgo(p.updatedAt)}
+                      </td>
+                      <td class="td-right">
                         <button
-                          class="btn btn-sm"
+                          type="button"
+                          class="op-btn"
                           disabled={updating !== null}
                           onClick={() => handleUpdate('rule', p.name)}
                         >
@@ -210,38 +276,45 @@ export function RulesProvidersPage(props: {
                 </tbody>
               </table>
             </div>
-          )}
-        </div>
-      )}
+            <div class="card-footer">
+              <span>
+                共 <span class="mono">{rProvList.length}</span> 项
+              </span>
+            </div>
+          </section>
+        ))}
 
-      {tab === 'proxy_providers' && (
-        <div class="card">
-          {pProvList.length === 0 ? (
-            <StateView kind="empty" title="未配置代理 Provider" />
-          ) : (
+      {tab === 'proxy_providers' &&
+        (pProvList.length === 0 ? (
+          <StateView kind="empty" title="未配置代理 Provider" message="当前运行配置未声明外部 proxy-providers。" />
+        ) : (
+          <section class="card-flush" aria-label="代理 Provider 列表">
             <div class="table-wrap">
               <table class="data-table">
                 <thead>
                   <tr>
                     <th>名称</th>
                     <th>来源</th>
-                    <th>节点数</th>
+                    <th class="th-right">节点数</th>
                     <th>最后更新</th>
-                    <th>操作</th>
+                    <th class="th-right">操作</th>
                   </tr>
                 </thead>
                 <tbody>
                   {pProvList.map((p) => (
                     <tr key={p.name}>
-                      <td style={{ fontWeight: 600 }}>{p.name}</td>
+                      <td style={{ fontWeight: 500 }}>{p.name}</td>
                       <td>
                         <span class="badge">{p.vehicleType || p.type}</span>
                       </td>
-                      <td class="mono">{p.proxies?.length ?? 0}</td>
-                      <td style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{formatTimeAgo(p.updatedAt)}</td>
-                      <td>
+                      <td class="mono td-right">{p.proxies?.length ?? 0}</td>
+                      <td class="mono" style={{ color: 'var(--text-muted)' }}>
+                        {formatTimeAgo(p.updatedAt)}
+                      </td>
+                      <td class="td-right">
                         <button
-                          class="btn btn-sm"
+                          type="button"
+                          class="op-btn"
                           disabled={updating !== null}
                           onClick={() => handleUpdate('proxy', p.name)}
                         >
@@ -253,9 +326,13 @@ export function RulesProvidersPage(props: {
                 </tbody>
               </table>
             </div>
-          )}
-        </div>
-      )}
+            <div class="card-footer">
+              <span>
+                共 <span class="mono">{pProvList.length}</span> 项
+              </span>
+            </div>
+          </section>
+        ))}
     </div>
   );
 }

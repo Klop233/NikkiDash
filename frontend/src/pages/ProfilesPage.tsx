@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'preact/hooks';
 import { nikkiApi } from '../api/nikki';
 import { StateView } from '../components/StateView';
 import { ConfirmModal } from '../components/ConfirmModal';
+import { IconPlus } from '../components/Icons';
 import { formatBytes, parseFormattedSize } from '../utils/format';
 import type { AsyncTask, ProfilesResponse, SubscriptionItem } from '../api/types';
 
@@ -66,8 +67,8 @@ export function ProfilesPage(props: {
   }, [subModal, subSaving, importOpen, importing]);
 
   const allChoices = [
-    ...(data?.subscriptions || []).map((s) => ({ value: `subscription:${s.id}`, label: `订阅: ${s.name}` })),
-    ...(data?.files || []).map((f) => ({ value: `file:${f.name}`, label: `文件: ${f.name}` }))
+    ...(data?.subscriptions || []).map((s) => ({ value: `subscription:${s.id}`, label: `订阅：${s.name}` })),
+    ...(data?.files || []).map((f) => ({ value: `file:${f.name}`, label: `文件：${f.name}` }))
   ];
 
   const activeFriendly = (() => {
@@ -76,9 +77,9 @@ export function ProfilesPage(props: {
     if (raw.startsWith('subscription:')) {
       const id = raw.slice('subscription:'.length);
       const sub = data?.subscriptions?.find((s) => s.id === id);
-      return sub ? `订阅: ${sub.name}` : raw;
+      return sub ? `订阅：${sub.name}` : raw;
     }
-    return raw.replace(/^file:/, '文件: ');
+    return raw.replace(/^file:/, '文件：');
   })();
 
   const handleSaveSub = async (e: Event) => {
@@ -111,7 +112,7 @@ export function ProfilesPage(props: {
           const upd = await nikkiApi.updateSubscription(res.id, false, `sub_init_${res.id}_${Date.now()}`);
           props.onTrackTask(upd.task);
         } catch (updErr) {
-          props.notify('error', `订阅已保存，但触发拉取失败: ${(updErr as Error).message}`);
+          props.notify('error', `订阅已保存，但触发拉取失败：${(updErr as Error).message}`);
         }
       } else {
         props.notify('success', '订阅配置已保存');
@@ -201,7 +202,7 @@ export function ProfilesPage(props: {
     }
   };
 
-  if (loading && !data) return <StateView kind="loading" title="正在加载配置与订阅..." />;
+  if (loading && !data) return <StateView kind="loading" title="正在加载配置与订阅" />;
   if (error && !data) return <StateView kind="error" title="无法读取配置列表" message={error} actionLabel="重试" onAction={load} />;
 
   const deleteDisabled = Boolean(deleteTarget?.active && !fallbackProfile && !forceStop);
@@ -210,35 +211,39 @@ export function ProfilesPage(props: {
     <div>
       <div class="page-header">
         <div>
-          <h2 class="page-title">配置与订阅管理</h2>
+          <h1 class="page-title">配置与订阅管理</h1>
           <p class="page-desc">管理远程订阅与本地 YAML 配置文件 · 当前活动配置：{activeFriendly}</p>
         </div>
-        <div class="row">
+        <div class="row" style={{ gap: '12px' }}>
+          <button type="button" class="btn" onClick={() => setImportOpen(true)}>
+            导入本地 YAML
+          </button>
           <button
+            type="button"
             class="btn btn-primary"
             onClick={() => {
               setSubFetchNow(true);
               setSubModal({ name: '', url: '', info_url: '', user_agent: 'clash.meta', prefer: 'remote' });
             }}
           >
+            <IconPlus />
             新增订阅
-          </button>
-          <button class="btn" onClick={() => setImportOpen(true)}>
-            导入本地 YAML
           </button>
         </div>
       </div>
 
       {/* Subscriptions */}
-      <div class="card">
+      <section class="card" aria-label="远程订阅列表">
         <div class="card-header">
-          <h3 class="card-title">远程订阅 ({data?.subscriptions.length ?? 0})</h3>
-          <button class="btn btn-sm" onClick={() => void load()}>
+          <h2 class="card-title">远程订阅 ({data?.subscriptions.length ?? 0})</h2>
+          <button type="button" class="btn btn-ghost" onClick={() => void load()}>
             刷新
           </button>
         </div>
         {(data?.subscriptions.length ?? 0) === 0 ? (
-          <div style={{ color: 'var(--text-muted)', padding: '14px 0' }}>暂无订阅，点击右上角「新增订阅」添加。</div>
+          <p style={{ margin: 0, padding: '16px 0', fontSize: '16px', lineHeight: '26px', color: 'var(--text-muted)' }}>
+            还没有远程订阅，点击右上角「新增订阅」添加。
+          </p>
         ) : (
           <div class="grid-2">
             {data!.subscriptions.map((sub) => {
@@ -249,60 +254,66 @@ export function ProfilesPage(props: {
                   ? Math.min(100, Math.round((usedBytes / totalBytes) * 100))
                   : null;
               return (
-                <div
-                  key={sub.id}
-                  class="card"
-                  style={{
-                    margin: 0,
-                    borderColor: sub.active ? 'var(--accent)' : 'var(--border)',
-                    background: sub.active ? 'var(--accent-soft)' : 'var(--surface-2)'
-                  }}
-                >
-                  <div class="row-between">
+                <div key={sub.id} class={`sub-card ${sub.active ? 'active' : ''}`}>
+                  <div class="row-between" style={{ marginBottom: '12px' }}>
                     <div class="row">
-                      <strong>{sub.name}</strong>
+                      <span style={{ fontSize: '16px', lineHeight: '24px', fontWeight: 500 }}>{sub.name}</span>
                       {sub.active && <span class="badge badge-green">当前活动</span>}
                       {sub.success === '0' && <span class="badge badge-red">上次更新失败</span>}
                     </div>
                     <span class="badge">{sub.prefer === 'remote' ? '优先远程' : '优先本地'}</span>
                   </div>
 
-                  <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '8px' }}>
-                    <div>
-                      已用: {sub.used || '-'} / 总量: {sub.total || '-'} · 剩余: {sub.avaliable || '-'}
-                    </div>
-                    {pct !== null && (
-                      <div style={{ margin: '6px 0' }}>
-                        <div class="progress-bar">
-                          <div class="progress-fill" style={{ width: `${pct}%` }} />
-                        </div>
-                      </div>
-                    )}
-                    <div>
-                      到期: {sub.expire || '-'} · 更新: {sub.update || '未拉取'}
-                    </div>
-                    <div>本地缓存: {sub.file_exists ? formatBytes(sub.file_size) : '尚无缓存文件'}</div>
-                  </div>
+                  <dl class="kv-grid" style={{ gridTemplateColumns: '88px minmax(0, 1fr)', rowGap: '8px' }}>
+                    <dt class="kv-key">流量用量</dt>
+                    <dd class="kv-val mono">
+                      {sub.used || '—'} / {sub.total || '—'}（剩余 {sub.avaliable || '—'}）
+                    </dd>
+                    <dt class="kv-key">到期日期</dt>
+                    <dd class="kv-val mono">{sub.expire || '—'}</dd>
+                    <dt class="kv-key">最后更新</dt>
+                    <dd class="kv-val mono">{sub.update || '未拉取'}</dd>
+                    <dt class="kv-key">本地缓存</dt>
+                    <dd class="kv-val mono">{sub.file_exists ? formatBytes(sub.file_size) : '尚无缓存文件'}</dd>
+                  </dl>
 
-                  <div class="row" style={{ marginTop: '12px' }}>
+                  {pct !== null && (
+                    <div style={{ marginTop: '12px' }}>
+                      <div class="progress-bar" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}>
+                        <div class="progress-fill" style={{ width: `${pct}%` }} />
+                      </div>
+                    </div>
+                  )}
+
+                  <div class="row" style={{ marginTop: '16px', gap: '8px' }}>
                     {!sub.active && (
-                      <button class="btn btn-sm btn-primary" onClick={() => void handleSwitch(`subscription:${sub.id}`, true)}>
-                        切换并应用
+                      <button
+                        type="button"
+                        class="btn btn-sm"
+                        onClick={() => void handleSwitch(`subscription:${sub.id}`, true)}
+                      >
+                        启用并应用
                       </button>
                     )}
-                    <button class="btn btn-sm btn-success" onClick={() => void handleUpdateSub(sub.id)}>
+                    <button type="button" class="btn btn-sm" onClick={() => void handleUpdateSub(sub.id)}>
                       立即更新
                     </button>
-                    <button class="btn btn-sm" onClick={() => setSubModal({ ...sub })}>
+                    <button type="button" class="btn btn-sm btn-ghost" onClick={() => setSubModal({ ...sub })}>
                       编辑
                     </button>
                     {sub.file_exists && (
-                      <button class="btn btn-sm" onClick={() => props.onEditFile('subscription', `${sub.id}.yaml`)}>
+                      <button
+                        type="button"
+                        class="btn btn-sm btn-ghost"
+                        onClick={() => props.onEditFile('subscription', `${sub.id}.yaml`)}
+                      >
                         查看 YAML
                       </button>
                     )}
                     <button
+                      type="button"
                       class="btn btn-sm btn-danger"
+                      style={{ marginLeft: 'auto' }}
                       onClick={() =>
                         setDeleteTarget({ kind: 'subscription', id: sub.id, label: sub.name, active: sub.active })
                       }
@@ -315,46 +326,50 @@ export function ProfilesPage(props: {
             })}
           </div>
         )}
-      </div>
+      </section>
 
       {/* Local File Profiles */}
-      <div class="card">
-        <div class="card-header">
-          <h3 class="card-title">本地配置文件 (/etc/nikki/profiles) ({data?.files.length ?? 0})</h3>
+      <section class="card-flush" aria-label="本地配置文件列表">
+        <div class="card-toolbar" style={{ justifyContent: 'space-between' }}>
+          <h2 class="card-title">
+            本地配置文件 <span class="mono" style={{ color: 'var(--text-muted)', fontWeight: 400 }}>/etc/nikki/profiles</span> (
+            {data?.files.length ?? 0})
+          </h2>
         </div>
         {(data?.files.length ?? 0) === 0 ? (
-          <div style={{ color: 'var(--text-muted)', padding: '14px 0' }}>暂无本地配置文件。</div>
+          <div style={{ padding: '24px 16px', fontSize: '16px', color: 'var(--text-muted)' }}>暂无本地配置文件。</div>
         ) : (
           <div class="table-wrap">
             <table class="data-table">
               <thead>
                 <tr>
                   <th>文件名</th>
-                  <th>大小</th>
+                  <th class="th-right">大小</th>
                   <th>状态</th>
-                  <th>操作</th>
+                  <th class="th-right">操作</th>
                 </tr>
               </thead>
               <tbody>
                 {data!.files.map((f) => (
-                  <tr key={f.name}>
-                    <td class="mono" style={{ fontWeight: 600 }}>
+                  <tr key={f.name} class={f.active ? 'selected' : ''}>
+                    <td class="mono" style={{ fontWeight: 500 }}>
                       {f.name}
                     </td>
-                    <td class="mono">{formatBytes(f.size)}</td>
+                    <td class="mono td-right">{formatBytes(f.size)}</td>
                     <td>{f.active ? <span class="badge badge-green">当前活动</span> : <span class="badge">备用</span>}</td>
-                    <td>
-                      <div class="row">
+                    <td class="td-right">
+                      <div class="row" style={{ justifyContent: 'flex-end', gap: '4px' }}>
                         {!f.active && (
-                          <button class="btn btn-sm btn-primary" onClick={() => void handleSwitch(`file:${f.name}`, true)}>
+                          <button type="button" class="op-btn" onClick={() => void handleSwitch(`file:${f.name}`, true)}>
                             启用并应用
                           </button>
                         )}
-                        <button class="btn btn-sm" onClick={() => props.onEditFile('profile', f.name)}>
+                        <button type="button" class="op-btn" onClick={() => props.onEditFile('profile', f.name)}>
                           编辑 YAML
                         </button>
                         <button
-                          class="btn btn-sm btn-danger"
+                          type="button"
+                          class="op-btn op-btn-danger"
                           onClick={() => setDeleteTarget({ kind: 'file', id: f.name, label: f.name, active: f.active })}
                         >
                           删除
@@ -367,7 +382,7 @@ export function ProfilesPage(props: {
             </table>
           </div>
         )}
-      </div>
+      </section>
 
       {/* Add/Edit Subscription Modal */}
       {subModal && (
@@ -375,12 +390,13 @@ export function ProfilesPage(props: {
           class="modal-overlay"
           role="dialog"
           aria-modal="true"
+          aria-label={subModal.id ? '编辑订阅' : '新增订阅'}
           onClick={(e) => {
             if (e.target === e.currentTarget && !subSaving) setSubModal(null);
           }}
         >
-          <div class="modal-card" style={{ maxWidth: '520px' }}>
-            <h3 style={{ margin: '0 0 12px' }}>{subModal.id ? '编辑订阅' : '新增订阅'}</h3>
+          <div class="modal-card modal-form">
+            <h2 class="modal-title">{subModal.id ? '编辑订阅' : '新增订阅'}</h2>
             <form class="stack" onSubmit={handleSaveSub}>
               <div class="field">
                 <label class="field-label">订阅名称</label>
@@ -394,22 +410,24 @@ export function ProfilesPage(props: {
               <div class="field">
                 <label class="field-label">订阅 URL</label>
                 <input
-                  class="input"
+                  class="input mono"
                   type="url"
                   value={subModal.url || ''}
                   onInput={(e) => setSubModal({ ...subModal, url: (e.currentTarget as HTMLInputElement).value })}
                   required
                 />
                 {(subModal.url || '').toLowerCase().startsWith('http://') && (
-                  <span class="field-hint" style={{ color: 'var(--amber)' }}>
+                  <span class="field-hint" style={{ color: 'var(--warning)' }}>
                     警告：使用 HTTP 明文链接存在流量嗅探风险，建议使用 HTTPS。
                   </span>
                 )}
               </div>
               <div class="field">
-                <label class="field-label">流量信息 URL (可选)</label>
+                <label class="field-label">
+                  流量信息 URL <span class="field-optional">（选填）</span>
+                </label>
                 <input
-                  class="input"
+                  class="input mono"
                   type="url"
                   value={subModal.info_url || ''}
                   onInput={(e) => setSubModal({ ...subModal, info_url: (e.currentTarget as HTMLInputElement).value })}
@@ -419,7 +437,7 @@ export function ProfilesPage(props: {
                 <div class="field">
                   <label class="field-label">User-Agent</label>
                   <input
-                    class="input"
+                    class="input mono"
                     list="ua-list"
                     value={subModal.user_agent || 'clash'}
                     onInput={(e) => setSubModal({ ...subModal, user_agent: (e.currentTarget as HTMLInputElement).value })}
@@ -445,7 +463,7 @@ export function ProfilesPage(props: {
                 </div>
               </div>
               {!subModal.id && (
-                <label class="row" style={{ cursor: 'pointer', fontSize: '13px' }}>
+                <label class="check-row">
                   <input
                     type="checkbox"
                     checked={subFetchNow}
@@ -473,15 +491,18 @@ export function ProfilesPage(props: {
           class="modal-overlay"
           role="dialog"
           aria-modal="true"
+          aria-label="导入本地 YAML 配置"
           onClick={(e) => {
             if (e.target === e.currentTarget && !importing) setImportOpen(false);
           }}
         >
-          <div class="modal-card" style={{ maxWidth: '580px' }}>
-            <h3 style={{ margin: '0 0 12px' }}>导入本地 YAML 配置</h3>
+          <div class="modal-card modal-form">
+            <h2 class="modal-title">导入本地 YAML 配置</h2>
             <form class="stack" onSubmit={handleImportSubmit}>
               <div class="field">
-                <label class="field-label">从本地选择 .yaml / .yml 文件（支持大文件分片上传）</label>
+                <label class="field-label">
+                  从本地选择 .yaml / .yml 文件 <span class="field-optional">（选填）</span>
+                </label>
                 <input type="file" accept=".yaml,.yml" onChange={handleFileUploadSelect} />
               </div>
               <div class="field">
@@ -502,7 +523,7 @@ export function ProfilesPage(props: {
                   required
                 />
               </div>
-              <label class="row" style={{ cursor: 'pointer' }}>
+              <label class="check-row">
                 <input
                   type="checkbox"
                   checked={importActivate}
@@ -525,16 +546,16 @@ export function ProfilesPage(props: {
 
       <ConfirmModal
         open={deleteTarget !== null}
-        title={`删除${deleteTarget?.kind === 'subscription' ? '订阅' : '配置'}：${deleteTarget?.label || ''}`}
+        title={`删除${deleteTarget?.kind === 'subscription' ? '订阅' : '配置'}「${deleteTarget?.label || ''}」？`}
         message={
           deleteTarget?.active
-            ? '这是当前正在使用的活动配置！删除前必须选择一个备用配置切换，或勾选停止 Nikki。'
-            : '删除后不可恢复，确定继续？'
+            ? '这是当前正在使用的活动配置。删除前必须选择一个备用配置切换，或勾选停止 Nikki。'
+            : '删除后不可撤销，请确认继续。'
         }
         danger
         busy={deleting}
         confirmDisabled={deleteDisabled}
-        confirmLabel="确认删除"
+        confirmLabel={deleteTarget?.kind === 'subscription' ? '删除订阅' : '删除配置'}
         onConfirm={handleConfirmDelete}
         onCancel={() => {
           setDeleteTarget(null);
@@ -543,7 +564,7 @@ export function ProfilesPage(props: {
         }}
       >
         {deleteTarget?.active && (
-          <div class="stack" style={{ marginTop: '8px' }}>
+          <div class="stack">
             <div class="field">
               <label class="field-label">切换到备用配置</label>
               <select
@@ -555,7 +576,7 @@ export function ProfilesPage(props: {
                   if (v) setForceStop(false);
                 }}
               >
-                <option value="">-- 不切换（需勾选下方停止服务） --</option>
+                <option value="">不切换（需勾选下方停止服务）</option>
                 {allChoices
                   .filter((c) => c.value !== `${deleteTarget.kind}:${deleteTarget.id}`)
                   .map((c) => (
@@ -565,7 +586,7 @@ export function ProfilesPage(props: {
                   ))}
               </select>
             </div>
-            <label class="row" style={{ cursor: 'pointer', fontSize: '13px' }}>
+            <label class="check-row">
               <input
                 type="checkbox"
                 checked={forceStop}

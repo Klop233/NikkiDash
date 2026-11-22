@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'preact/hooks';
 import { nikkiApi } from '../api/nikki';
 import { StateView } from '../components/StateView';
 import { ConfirmModal } from '../components/ConfirmModal';
+import { IconError, IconSuccess, IconWarning } from '../components/Icons';
 import type {
   AccessConfig,
   AccessMode,
@@ -137,45 +138,48 @@ export function PanelSettingsPage(props: {
 
   const plat = props.capabilities?.platform;
 
-  if (loading && !access) return <StateView kind="loading" title="正在加载面板设置..." />;
+  if (loading && !access) return <StateView kind="loading" title="正在加载面板设置" />;
   if (error && !access) return <StateView kind="error" title="无法读取面板设置" message={error} actionLabel="重试" onAction={load} />;
 
   return (
     <div>
       <div class="page-header">
         <div>
-          <h2 class="page-title">面板访问与安全设置</h2>
+          <h1 class="page-title">面板访问与安全设置</h1>
           <p class="page-desc">配置独立 uhttpd 端口、LAN / WAN HTTPS / LAN 免登录访问模式、主题与语言</p>
         </div>
       </div>
 
       {props.session.isGuest && (
-        <div class="alert alert-warning">
-          <div>
+        <div class="alert alert-warning" role="status">
+          <IconWarning className="alert-icon" />
+          <div class="alert-body">
             <strong>当前为 LAN 免登录受限身份：</strong>
-            为保证安全，修改端口、切换 WAN 模式或停用免登录需要路由器管理员身份。
+            修改端口、切换 WAN 模式或停用免登录需要路由器管理员身份。
           </div>
-          <button class="btn btn-sm btn-primary" onClick={props.onSwitchToAdminLogin}>
+          <button type="button" class="btn" onClick={props.onSwitchToAdminLogin}>
             切换为管理员登录
           </button>
         </div>
       )}
 
       {redirectUrl && (
-        <div class="alert alert-success">
-          <div>
+        <div class="alert alert-success" role="status">
+          <IconSuccess className="alert-icon" />
+          <div class="alert-body">
             <strong>独立 uhttpd 正在重载到新监听地址：</strong>
             <span class="mono">{redirectUrl}</span>（约 2 秒后生效）
           </div>
-          <a class="btn btn-sm btn-primary" href={redirectUrl}>
-            立即前往新地址
+          <a class="btn" href={redirectUrl}>
+            前往新地址
           </a>
         </div>
       )}
 
       {access?.last_service_error && (
-        <div class="alert alert-danger">
-          <div>
+        <div class="alert alert-danger" role="alert">
+          <IconError className="alert-icon" />
+          <div class="alert-body">
             <strong>最近一次面板启动错误：</strong> {access.last_service_error}
           </div>
         </div>
@@ -184,8 +188,8 @@ export function PanelSettingsPage(props: {
       <form class="stack" onSubmit={handleSave}>
         <div class="card">
           <div class="card-header">
-            <h3 class="card-title">访问模式（三选一，严格互斥）</h3>
-            <span class="badge badge-accent">当前监听: {(access?.effective_listen_addrs || []).join(', ') || '-'}</span>
+            <h2 class="card-title">访问模式（三选一，严格互斥）</h2>
+            <span class="badge badge-accent mono">当前监听：{(access?.effective_listen_addrs || []).join(', ') || '—'}</span>
           </div>
 
           <div class="grid-3">
@@ -209,25 +213,27 @@ export function PanelSettingsPage(props: {
                     disabled={props.session.isGuest}
                     onChange={() => setMode(m)}
                   />
-                  <strong>{title}</strong>
+                  <span style={{ fontWeight: 500, fontSize: '14px' }}>{title}</span>
                 </div>
-                <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{desc}</div>
+                <div style={{ fontSize: '14px', lineHeight: '22px', color: 'var(--text-muted)' }}>{desc}</div>
               </label>
             ))}
           </div>
 
           {mode === 'wan_https' && (
-            <div class="alert alert-danger" style={{ marginTop: '14px', marginBottom: 0 }}>
-              <div class="stack" style={{ gap: '8px' }}>
+            <div class="alert alert-danger" role="alert" style={{ marginTop: '16px', marginBottom: 0 }}>
+              <IconError className="alert-icon" />
+              <div class="alert-body stack" style={{ gap: '8px' }}>
                 <div>
                   <strong>安全边界声明：</strong>
-                  标准 <span class="mono">uhttpd /ubus</span> 是通用 ubus 入口。通过路由器 <span class="mono">root</span> 账号登录后，该会话拥有完整路由器管理员权限（NikkiDash ACL 不会缩小 root 权限）。认证后的用户必须是受信任的路由器管理员。
+                  标准 <span class="mono">uhttpd /ubus</span> 是通用 ubus 入口。通过路由器 <span class="mono">root</span>{' '}
+                  账号登录后，该会话拥有完整路由器管理员权限（NikkiDash ACL 不会缩小 root 权限），请确保仅限受信任管理员访问。
                 </div>
                 <div>
                   <strong>防火墙说明：</strong>
                   NikkiDash 不会自动添加 WAN 防火墙放行规则、UPnP 或 DDNS，请在 OpenWrt 防火墙中手动配置受控访问（或使用 VPN / WireGuard）。
                 </div>
-                <label class="row" style={{ cursor: 'pointer', color: 'var(--text)' }}>
+                <label class="check-row">
                   <input
                     type="checkbox"
                     checked={confirmWan}
@@ -243,7 +249,7 @@ export function PanelSettingsPage(props: {
 
         <div class="card">
           <div class="card-header">
-            <h3 class="card-title">端口、接口与 TLS 证书</h3>
+            <h2 class="card-title">端口、接口与 TLS 证书</h2>
           </div>
           <div class="grid-2">
             <div class="field">
@@ -280,7 +286,7 @@ export function PanelSettingsPage(props: {
               />
             </div>
             <div class="field">
-              <label class="field-label">会话超时时间（秒，300-86400）</label>
+              <label class="field-label">会话超时时间（秒，300–86400）</label>
               <input
                 class="input mono"
                 type="number"
@@ -292,7 +298,7 @@ export function PanelSettingsPage(props: {
               />
             </div>
             <div class="field">
-              <label class="field-label">TLS 证书路径 ({access?.cert_exists ? '已存在' : '不存在'})</label>
+              <label class="field-label">TLS 证书路径（{access?.cert_exists ? '已存在' : '不存在'}）</label>
               <input
                 class="input mono"
                 disabled={props.session.isGuest}
@@ -301,7 +307,7 @@ export function PanelSettingsPage(props: {
               />
             </div>
             <div class="field">
-              <label class="field-label">TLS 私钥路径 ({access?.key_exists ? '已存在' : '不存在'})</label>
+              <label class="field-label">TLS 私钥路径（{access?.key_exists ? '已存在' : '不存在'}）</label>
               <input
                 class="input mono"
                 disabled={props.session.isGuest}
@@ -311,7 +317,7 @@ export function PanelSettingsPage(props: {
             </div>
           </div>
           {mode === 'wan_https' && (!access?.cert_exists || !access?.key_exists) && (
-            <label class="row" style={{ marginTop: '12px', cursor: 'pointer' }}>
+            <label class="check-row" style={{ marginTop: '12px' }}>
               <input
                 type="checkbox"
                 checked={genCert}
@@ -325,7 +331,7 @@ export function PanelSettingsPage(props: {
 
         <div class="card">
           <div class="card-header">
-            <h3 class="card-title">界面外观与语言</h3>
+            <h2 class="card-title">界面外观与语言</h2>
           </div>
           <div class="grid-2">
             <div class="field">
@@ -336,8 +342,8 @@ export function PanelSettingsPage(props: {
                 onChange={(e) => props.onThemeChange((e.currentTarget as HTMLSelectElement).value as ThemeMode)}
               >
                 <option value="system">跟随系统</option>
-                <option value="dark">深色模式</option>
                 <option value="light">浅色模式</option>
+                <option value="dark">深色模式</option>
               </select>
             </div>
             <div class="field">
@@ -354,58 +360,49 @@ export function PanelSettingsPage(props: {
           </div>
         </div>
 
-        <div class="row">
+        <div class="row" style={{ justifyContent: 'flex-end' }}>
           <button type="submit" class="btn btn-primary" disabled={saving || props.session.isGuest}>
             {saving ? '保存中...' : '保存并应用面板设置'}
           </button>
         </div>
       </form>
 
-      <div class="card" style={{ marginTop: '14px' }}>
+      <div class="card" style={{ marginTop: '24px' }}>
         <div class="card-header">
-          <h3 class="card-title">Nikki 核心集成与旧版 LuCI 管理</h3>
+          <h2 class="card-title">Nikki 核心集成与旧版 LuCI 管理</h2>
           <span class={`badge ${plat?.nikki_installed && plat?.mihomo_installed ? 'badge-green' : 'badge-amber'}`}>
             {plat?.nikki_installed && plat?.mihomo_installed ? '核心已就绪' : '未安装核心'}
           </span>
         </div>
-        <div class="grid-2" style={{ marginBottom: '12px' }}>
-          <div class="stack" style={{ gap: '6px', fontSize: '13px' }}>
-            <div>
-              <strong>系统环境：</strong>{' '}
-              <span class="mono">
-                {plat ? `${plat.distrib_id} ${plat.distrib_release} / ${plat.arch} / ${plat.pkg_mgr}` : '加载中...'}
-              </span>
-            </div>
-            <div>
-              <strong>Nikki 核心包：</strong>{' '}
-              <span class="mono">{props.capabilities?.versions.nikki || (plat?.nikki_installed ? '已安装' : '未安装')}</span>
-            </div>
-            <div>
-              <strong>Mihomo 内核：</strong>{' '}
-              <span class="mono">
-                {props.capabilities?.versions.core || '未安装'}
-                {plat?.mihomo_variant ? ` (mihomo-${plat.mihomo_variant})` : ''}
-              </span>
-            </div>
-          </div>
-          <div class="stack" style={{ gap: '6px', fontSize: '13px' }}>
-            <div>
-              <strong>官方核心源：</strong>{' '}
-              <span class="mono" style={{ wordBreak: 'break-all' }}>{plat?.feed_url || '不支持'}</span>
-            </div>
-            <div>
-              <strong>旧版 LuCI 界面：</strong>{' '}
-              {plat?.luci_nikki_installed ? (
-                <span class="badge badge-amber">{plat.luci_packages.join(', ')}</span>
-              ) : (
-                <span class="badge badge-green">未安装 / 已清理</span>
-              )}
-            </div>
-          </div>
-        </div>
-        <div class="row" style={{ flexWrap: 'wrap', gap: '10px' }}>
+
+        <dl class="kv-grid" style={{ marginBottom: '20px', gridTemplateColumns: '128px minmax(0, 1fr)' }}>
+          <dt class="kv-key">系统环境</dt>
+          <dd class="kv-val mono">
+            {plat ? `${plat.distrib_id} ${plat.distrib_release} / ${plat.arch} / ${plat.pkg_mgr}` : '加载中...'}
+          </dd>
+          <dt class="kv-key">Nikki 核心包</dt>
+          <dd class="kv-val mono">{props.capabilities?.versions.nikki || (plat?.nikki_installed ? '已安装' : '未安装')}</dd>
+          <dt class="kv-key">Mihomo 内核</dt>
+          <dd class="kv-val mono">
+            {props.capabilities?.versions.core || '未安装'}
+            {plat?.mihomo_variant ? ` (mihomo-${plat.mihomo_variant})` : ''}
+          </dd>
+          <dt class="kv-key">官方核心源</dt>
+          <dd class="kv-val mono">{plat?.feed_url || '不支持'}</dd>
+          <dt class="kv-key">旧版 LuCI 界面</dt>
+          <dd class="kv-val">
+            {plat?.luci_nikki_installed ? (
+              <span class="badge badge-amber">{plat.luci_packages.join(', ')}</span>
+            ) : (
+              <span class="badge badge-green">未安装 / 已清理</span>
+            )}
+          </dd>
+        </dl>
+
+        <div class="row" style={{ gap: '12px' }}>
           <select
             class="select"
+            aria-label="Mihomo 内核分支"
             style={{ maxWidth: '220px' }}
             value={coreVariant}
             disabled={coreBusy || props.session.isGuest}
@@ -416,7 +413,7 @@ export function PanelSettingsPage(props: {
           </select>
           <button
             type="button"
-            class="btn btn-primary"
+            class="btn"
             disabled={coreBusy || props.session.isGuest || (plat ? !plat.supported : false)}
             onClick={handleInstallOrUpgradeCore}
           >
@@ -433,18 +430,18 @@ export function PanelSettingsPage(props: {
             </button>
           )}
           {props.onRefreshCapabilities && (
-            <button type="button" class="btn" onClick={props.onRefreshCapabilities}>
+            <button type="button" class="btn btn-ghost" onClick={props.onRefreshCapabilities}>
               刷新状态
             </button>
           )}
         </div>
       </div>
 
-      <div class="card" style={{ marginTop: '14px' }}>
+      <div class="card" style={{ marginTop: '24px' }}>
         <div class="card-header">
-          <h3 class="card-title">故障恢复命令（SSH）</h3>
+          <h2 class="card-title">故障恢复命令（SSH）</h2>
         </div>
-        <p style={{ margin: '0 0 8px', fontSize: '13px', color: 'var(--text-secondary)' }}>
+        <p style={{ margin: '0 0 12px', fontSize: '16px', lineHeight: '26px', color: 'var(--text)' }}>
           若误配端口或证书导致面板无法访问，不影响 OpenWrt SSH、原 LuCI 与 Nikki 代理运行。通过 SSH 执行以下命令即可恢复默认 LAN 18080 端口：
         </p>
         <pre class="log-box" style={{ height: 'auto', margin: 0 }}>
@@ -458,7 +455,7 @@ export function PanelSettingsPage(props: {
         message={`将仅卸载 ${(plat?.luci_packages || []).join(', ')}。核心包 nikki、mihomo 与 /etc/config/nikki 配置文件将完整保留，NikkiDash 面板不受影响。`}
         danger
         busy={coreBusy}
-        confirmLabel="确认卸载旧版 LuCI"
+        confirmLabel="卸载旧版 LuCI"
         onConfirm={handleRemoveLuci}
         onCancel={() => setRemoveLuciModal(false)}
       />

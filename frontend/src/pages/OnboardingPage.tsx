@@ -1,5 +1,6 @@
 import { useState } from 'preact/hooks';
 import { nikkiApi } from '../api/nikki';
+import { IconError } from '../components/Icons';
 import type { AsyncTask, CapabilitiesResponse, ProfilesResponse, SessionState } from '../api/types';
 
 export function OnboardingPage(props: {
@@ -76,10 +77,10 @@ export function OnboardingPage(props: {
   };
 
   const checkRow = (label: string, ok?: boolean, hint?: string) => (
-    <div class="row-between" style={{ padding: '8px 0', borderBottom: '1px solid var(--border)' }}>
+    <div class="row-between" style={{ padding: '12px 0', borderBottom: '1px solid var(--border)' }}>
       <div>
-        <div style={{ fontWeight: 600 }}>{label}</div>
-        {hint && <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{hint}</div>}
+        <div style={{ fontWeight: 500, fontSize: '14px', lineHeight: '22px' }}>{label}</div>
+        {hint && <div style={{ fontSize: '14px', lineHeight: '20px', color: 'var(--text-muted)' }}>{hint}</div>}
       </div>
       <span class={`badge ${ok ? 'badge-green' : 'badge-red'}`}>{ok ? '就绪' : '缺失 / 异常'}</span>
     </div>
@@ -89,20 +90,21 @@ export function OnboardingPage(props: {
     <div>
       <div class="page-header">
         <div>
-          <h2 class="page-title">环境检测与首次配置向导</h2>
-          <p class="page-desc">自动集成安装 Nikki / Mihomo 核心（无需手动单独安装）并快速导入订阅或配置文件</p>
+          <h1 class="page-title">环境检测与首次配置向导</h1>
+          <p class="page-desc">自动集成安装 Nikki 与 Mihomo 核心（无需手动单独安装），快速导入订阅或配置文件</p>
         </div>
-        <button class="btn" onClick={props.onRefreshAll}>
+        <button type="button" class="btn" onClick={props.onRefreshAll}>
           重新检测
         </button>
       </div>
 
       {conflicts.length > 0 && (
-        <div class="alert alert-danger">
-          <div>
+        <div class="alert alert-danger" role="alert">
+          <IconError className="alert-icon" />
+          <div class="alert-body">
             <strong>检测到潜在透明代理冲突：</strong>
             {conflicts.map((c) => c.message).join(' ')}
-            <div style={{ marginTop: '4px', fontSize: '12px' }}>
+            <div style={{ marginTop: '4px', fontSize: '14px', lineHeight: '22px' }}>
               NikkiDash 不会自动卸载或停止其他代理插件，请先手动停用冲突服务后再启动 Nikki。
             </div>
           </div>
@@ -110,19 +112,20 @@ export function OnboardingPage(props: {
       )}
 
       {!coreReady && (
-        <div class="card" style={{ marginBottom: '14px', borderColor: 'var(--accent)' }}>
+        <div class="card" style={{ marginBottom: '24px', borderColor: 'var(--accent)' }}>
           <div class="card-header">
-            <h3 class="card-title">步骤一：一键集成安装 Nikki 与 Mihomo 核心</h3>
+            <h2 class="card-title">步骤一：一键集成安装 Nikki 与 Mihomo 核心</h2>
             <span class="badge badge-amber">未检测到核心</span>
           </div>
-          <p style={{ margin: '0 0 12px', fontSize: '13px', color: 'var(--text-secondary)' }}>
-            当前路由器尚未安装 Nikki 服务包或 Mihomo 内核。NikkiDash 可直接从官方软件源自动配置签名与源并安装{' '}
-            <span class="mono">nikki</span> + <span class="mono">mihomo</span> 核心（不安装旧版{' '}
+          <p style={{ margin: '0 0 16px', fontSize: '16px', lineHeight: '26px', color: 'var(--text)' }}>
+            当前路由器尚未安装 Nikki 服务包或 Mihomo 内核。NikkiDash 可直接从官方软件源自动配置签名并安装{' '}
+            <span class="mono">nikki</span> 与 <span class="mono">mihomo</span> 核心（不安装旧版{' '}
             <span class="mono">luci-app-nikki</span>），无需在 SSH 手动操作。
           </p>
-          <div class="row" style={{ flexWrap: 'wrap', gap: '10px' }}>
+          <div class="row" style={{ gap: '12px' }}>
             <select
               class="select"
+              aria-label="Mihomo 内核分支"
               style={{ maxWidth: '240px' }}
               value={coreVariant}
               disabled={busy || isGuest}
@@ -132,6 +135,7 @@ export function OnboardingPage(props: {
               <option value="alpha">mihomo-alpha（测试版）</option>
             </select>
             <button
+              type="button"
               class="btn btn-primary"
               disabled={busy || isGuest || (plat ? !plat.supported : false)}
               onClick={handleInstallCore}
@@ -139,18 +143,18 @@ export function OnboardingPage(props: {
               {busy ? '提交安装任务中...' : '一键安装 Nikki + Mihomo 核心'}
             </button>
             {plat && (
-              <span class="badge">
-                {plat.distrib_id} {plat.distrib_release} · {plat.arch || '?'} · {plat.pkg_mgr}
+              <span class="badge mono">
+                {plat.distrib_id} {plat.distrib_release} · {plat.arch || '—'} · {plat.pkg_mgr}
               </span>
             )}
           </div>
           {plat && !plat.supported && (
-            <div style={{ marginTop: '8px', fontSize: '12px', color: 'var(--red)' }}>
+            <div style={{ marginTop: '12px', fontSize: '14px', color: 'var(--danger)' }}>
               当前系统（{plat.distrib_id} {plat.distrib_release} / {plat.arch}）暂不支持自动源安装，请确认使用支持 firewall4 的 OpenWrt 24.10 / 25.12 / SNAPSHOT。
             </div>
           )}
           {isGuest && (
-            <div style={{ marginTop: '8px', fontSize: '12px', color: 'var(--amber)' }}>
+            <div style={{ marginTop: '12px', fontSize: '14px', color: 'var(--warning)' }}>
               LAN 免登录访客会话无权安装软件包，请切换为路由器管理员登录后操作。
             </div>
           )}
@@ -160,13 +164,13 @@ export function OnboardingPage(props: {
       <div class="grid-2">
         <div class="card">
           <div class="card-header">
-            <h3 class="card-title">系统依赖与版本</h3>
-            <span class="badge badge-accent">
+            <h2 class="card-title">系统依赖与版本</h2>
+            <span class="badge badge-accent mono">
               {plat?.distrib_id || 'OpenWrt'} {props.capabilities?.versions.openwrt || '未知'}
             </span>
           </div>
-          {checkRow('Nikki 服务包 (/etc/init.d/nikki)', deps?.nikki_installed, `版本: ${props.capabilities?.versions.nikki || '未安装'}`)}
-          {checkRow('Mihomo 核心 (/usr/bin/mihomo)', deps?.mihomo_installed, `版本: ${props.capabilities?.versions.core || '未安装'}`)}
+          {checkRow('Nikki 服务包 (/etc/init.d/nikki)', deps?.nikki_installed, `版本：${props.capabilities?.versions.nikki || '未安装'}`)}
+          {checkRow('Mihomo 核心 (/usr/bin/mihomo)', deps?.mihomo_installed, `版本：${props.capabilities?.versions.core || '未安装'}`)}
           {checkRow('firewall4 / nftables', deps?.fw4_available, '透明代理规则引擎')}
           {checkRow('yq YAML 处理工具', deps?.yq_available, '用于配置校验与 mixin 合并')}
           {checkRow('curl 网络工具', deps?.curl_available, '用于 Mihomo 控制器通信与订阅下载')}
@@ -175,7 +179,7 @@ export function OnboardingPage(props: {
 
         <div class="card">
           <div class="card-header">
-            <h3 class="card-title">方式一：添加订阅链接</h3>
+            <h2 class="card-title">方式一：添加订阅链接</h2>
           </div>
           <form class="stack" onSubmit={handleAddSub}>
             <div class="field">
@@ -185,7 +189,7 @@ export function OnboardingPage(props: {
             <div class="field">
               <label class="field-label">订阅 URL (http/https)</label>
               <input
-                class="input"
+                class="input mono"
                 type="url"
                 placeholder="https://example.com/subscribe?token=..."
                 value={subUrl}
@@ -193,39 +197,41 @@ export function OnboardingPage(props: {
                 required
               />
               {subUrl.toLowerCase().startsWith('http://') && (
-                <span class="field-hint" style={{ color: 'var(--amber)' }}>
+                <span class="field-hint" style={{ color: 'var(--warning)' }}>
                   提示：明文 HTTP 订阅可能泄露凭据，建议优先使用 HTTPS。
                 </span>
               )}
             </div>
-            <button class="btn btn-primary" type="submit" disabled={busy || !subUrl.trim() || !coreReady}>
-              保存并更新订阅
-            </button>
+            <div class="row" style={{ justifyContent: 'flex-end' }}>
+              <button class={`btn ${coreReady ? 'btn-primary' : ''}`} type="submit" disabled={busy || !subUrl.trim() || !coreReady}>
+                保存并更新订阅
+              </button>
+            </div>
           </form>
         </div>
       </div>
 
-      <div class="card" style={{ marginTop: '14px' }}>
+      <div class="card" style={{ marginTop: '24px' }}>
         <div class="card-header">
-          <h3 class="card-title">方式二：直接导入 Clash / Mihomo YAML 配置文件</h3>
+          <h2 class="card-title">方式二：直接导入 Clash / Mihomo YAML 配置文件</h2>
         </div>
         <form class="stack" onSubmit={handleImportYaml}>
           <div class="field" style={{ maxWidth: '320px' }}>
             <label class="field-label">文件名 (.yaml / .yml)</label>
-            <input class="input" value={yamlName} onInput={(e) => setYamlName((e.currentTarget as HTMLInputElement).value)} required />
+            <input class="input mono" value={yamlName} onInput={(e) => setYamlName((e.currentTarget as HTMLInputElement).value)} required />
           </div>
           <div class="field">
             <label class="field-label">YAML 内容（需包含 proxies 或 proxy-providers）</label>
             <textarea
               class="textarea"
-              placeholder="proxies:\n  - name: ..."
+              placeholder={'proxies:\n  - name: ...'}
               value={yamlContent}
               onInput={(e) => setYamlContent((e.currentTarget as HTMLTextAreaElement).value)}
               required
             />
           </div>
-          <div class="row">
-            <button class="btn btn-primary" type="submit" disabled={busy || !yamlContent.trim() || !coreReady}>
+          <div class="row" style={{ justifyContent: 'flex-end' }}>
+            <button class="btn" type="submit" disabled={busy || !yamlContent.trim() || !coreReady}>
               校验并导入为活动配置
             </button>
           </div>

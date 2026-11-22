@@ -21,6 +21,7 @@ import { Layout, type PageId } from './components/Layout';
 import { ToastStack, type ToastItem } from './components/Toast';
 import { ConfirmModal } from './components/ConfirmModal';
 import { StateView } from './components/StateView';
+import { IconClose, IconError, IconInfo, IconSuccess, IconWarning } from './components/Icons';
 import { LoginPage } from './pages/LoginPage';
 import { OnboardingPage } from './pages/OnboardingPage';
 import { OverviewPage } from './pages/OverviewPage';
@@ -115,9 +116,10 @@ export function App() {
   const notify = useCallback((kind: 'success' | 'error' | 'info', message: string) => {
     const id = toastSeq++;
     setToasts((prev) => [...prev.slice(-4), { id, kind, message }]);
-    setTimeout(() => {
-      setToasts((prev) => prev.filter((x) => x.id !== id));
-    }, 4500);
+  }, []);
+
+  const dismissToast = useCallback((id: number) => {
+    setToasts((prev) => prev.filter((x) => x.id !== id));
   }, []);
 
   useEffect(() => {
@@ -418,6 +420,11 @@ export function App() {
       >
         {activeTask && (
           <div
+            role={
+              activeTask.status === 'failed' || activeTask.status === 'rolled_back' || activeTask.status === 'rollback_failed'
+                ? 'alert'
+                : 'status'
+            }
             class={`alert ${
               activeTask.status === 'succeeded'
                 ? 'alert-success'
@@ -428,28 +435,41 @@ export function App() {
                     : 'alert-info'
             }`}
           >
-            <div style={{ flex: 1 }}>
-              <div class="row" style={{ gap: '8px' }}>
-                {taskInFlight && <span class="spinner" />}
-                <strong>
-                  {formatTaskKind(activeTask.kind)} — {formatTaskStatus(activeTask.status)}
-                </strong>
+            {taskInFlight ? (
+              <span class="spinner alert-icon" />
+            ) : activeTask.status === 'succeeded' ? (
+              <IconSuccess className="alert-icon" />
+            ) : activeTask.status === 'unknown' ? (
+              <IconWarning className="alert-icon" />
+            ) : activeTask.status === 'failed' || activeTask.status === 'rolled_back' || activeTask.status === 'rollback_failed' ? (
+              <IconError className="alert-icon" />
+            ) : (
+              <IconInfo className="alert-icon" />
+            )}
+            <div class="alert-body">
+              <div style={{ fontWeight: 500 }}>
+                {formatTaskKind(activeTask.kind)} — {formatTaskStatus(activeTask.status)}
               </div>
-              {activeTask.message && <div style={{ marginTop: '3px' }}>{activeTask.message}</div>}
+              {activeTask.message && <div style={{ marginTop: '4px', fontSize: '14px', lineHeight: '22px' }}>{activeTask.message}</div>}
               {activeTask.error && (
-                <div class="mono" style={{ fontSize: '12px', marginTop: '4px', wordBreak: 'break-word' }}>
+                <div class="mono" style={{ fontSize: '14px', lineHeight: '22px', marginTop: '4px', wordBreak: 'break-word' }}>
                   {activeTask.error}
                 </div>
               )}
               {activeTask.steps.length > 0 && (
-                <div style={{ fontSize: '11.5px', opacity: 0.88, marginTop: '6px' }}>
+                <div style={{ fontSize: '14px', lineHeight: '22px', color: 'var(--text-muted)', marginTop: '4px' }}>
                   进度：{activeTask.steps.map((s) => formatTaskStep(s.name)).join(' → ')}
                 </div>
               )}
             </div>
             {!taskInFlight && (
-              <button class="btn btn-sm btn-ghost" onClick={() => setActiveTask(null)}>
-                关闭
+              <button
+                type="button"
+                class="icon-btn"
+                aria-label="关闭任务提示"
+                onClick={() => setActiveTask(null)}
+              >
+                <IconClose />
               </button>
             )}
           </div>
@@ -541,7 +561,7 @@ export function App() {
         message="停止后将清除 Nikki 透明代理 nftables 规则并恢复路由器常规网络转发，不会关闭 NikkiDash 面板。"
         danger
         busy={busyAction}
-        confirmLabel="确认停止"
+        confirmLabel="停止代理"
         onConfirm={() => {
           setStopConfirm(false);
           void runServiceAction('stop');
@@ -549,10 +569,7 @@ export function App() {
         onCancel={() => setStopConfirm(false)}
       />
 
-      <ToastStack
-        items={toasts}
-        onDismiss={(id) => setToasts((prev) => prev.filter((x) => x.id !== id))}
-      />
+      <ToastStack items={toasts} onDismiss={dismissToast} />
     </I18nContext.Provider>
   );
 }

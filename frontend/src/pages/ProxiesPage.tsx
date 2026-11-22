@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'preact/hooks';
 import { nikkiApi } from '../api/nikki';
 import { usePolling } from '../hooks/usePolling';
 import { StateView } from '../components/StateView';
+import { IconSearch } from '../components/Icons';
 import { delayColorClass, formatBytes, formatTimeAgo } from '../utils/format';
 import type { ProxyNode, ProxyProvider } from '../api/types';
 
@@ -128,7 +129,7 @@ export function ProxiesPage(props: {
           }
         };
       });
-      props.notify(delay > 0 ? 'info' : 'error', `${nodeName}: ${delay > 0 ? `${delay} ms` : '连接超时'}`);
+      props.notify(delay > 0 ? 'info' : 'error', `${nodeName}：${delay > 0 ? `${delay} ms` : '连接超时'}`);
     } catch (err) {
       setProxies((prev) => {
         const cur = prev[nodeName];
@@ -141,7 +142,7 @@ export function ProxiesPage(props: {
           }
         };
       });
-      props.notify('error', `${nodeName} 测速失败: ${(err as Error).message}`);
+      props.notify('error', `${nodeName} 测速失败：${(err as Error).message}`);
     } finally {
       setTestingKey(null);
     }
@@ -171,7 +172,7 @@ export function ProxiesPage(props: {
     return <StateView kind="empty" title="Nikki 未运行" message="请先在顶部或总览页启动 Nikki 服务，再管理策略组与节点。" />;
   }
   if (loading && groups.length === 0) {
-    return <StateView kind="loading" title="正在加载策略组..." />;
+    return <StateView kind="loading" title="正在加载策略组" message="正在从 Mihomo 控制器读取节点与延迟信息" />;
   }
   if (error && groups.length === 0) {
     return <StateView kind="error" title="无法加载策略组" message={error} actionLabel="重试" onAction={refresh} />;
@@ -183,32 +184,36 @@ export function ProxiesPage(props: {
     <div>
       <div class="page-header">
         <div>
-          <h2 class="page-title">代理策略组 ({groups.length})</h2>
-          <p class="page-desc">切换手动策略组节点、单节点或整组延迟测速；自动测速 / 故障转移组由 Mihomo 自动维护</p>
+          <h1 class="page-title">代理策略组 ({groups.length})</h1>
+          <p class="page-desc">切换手动策略组节点、单节点或整组延迟测速；自动测速与故障转移组由 Mihomo 自动维护</p>
         </div>
-        <div class="row">
+        <div class="row" style={{ gap: '12px' }}>
           {groups.length > 1 && (
-            <button class="btn" onClick={toggleAllCollapsed}>
+            <button type="button" class="btn" onClick={toggleAllCollapsed}>
               {allCollapsed ? '展开全部' : '折叠全部'}
             </button>
           )}
-          <button class="btn" onClick={() => void refresh()}>
+          <button type="button" class="btn" onClick={() => void refresh()}>
             刷新列表
           </button>
         </div>
       </div>
 
-      <div class="card" style={{ marginBottom: '14px' }}>
-        <div class="row" style={{ gap: '10px' }}>
-          <input
-            class="input"
-            style={{ maxWidth: '260px' }}
-            placeholder="搜索节点或策略组..."
-            value={search}
-            onInput={(e) => setSearch((e.currentTarget as HTMLInputElement).value)}
-          />
+      <div class="card" style={{ marginBottom: '24px' }}>
+        <div class="row" style={{ gap: '12px' }}>
+          <label class="search-box" style={{ maxWidth: '280px' }}>
+            <IconSearch />
+            <input
+              type="search"
+              aria-label="搜索节点或策略组"
+              placeholder="搜索节点或策略组"
+              value={search}
+              onInput={(e) => setSearch((e.currentTarget as HTMLInputElement).value)}
+            />
+          </label>
           <select
             class="select"
+            aria-label="排序方式"
             style={{ maxWidth: '170px' }}
             value={sortBy}
             onChange={(e) => setSortBy((e.currentTarget as HTMLSelectElement).value as 'default' | 'delay' | 'name')}
@@ -218,13 +223,14 @@ export function ProxiesPage(props: {
             <option value="name">按名称排序</option>
           </select>
           <input
-            class="input"
-            style={{ maxWidth: '300px' }}
+            class="input mono"
+            aria-label="测速 URL"
+            style={{ maxWidth: '320px' }}
             placeholder="测速 URL"
             value={testUrl}
             onInput={(e) => setTestUrl((e.currentTarget as HTMLInputElement).value)}
           />
-          <label class="row" style={{ cursor: 'pointer', fontSize: '13px' }}>
+          <label class="check-row">
             <input
               type="checkbox"
               checked={hideDead}
@@ -236,9 +242,9 @@ export function ProxiesPage(props: {
       </div>
 
       {providerList.length > 0 && (
-        <div class="card" style={{ marginBottom: '14px' }}>
+        <div class="card" style={{ marginBottom: '24px' }}>
           <div class="card-header">
-            <h3 class="card-title">代理集合 (Proxy Providers) ({providerList.length})</h3>
+            <h2 class="card-title">代理集合 (Proxy Providers) ({providerList.length})</h2>
           </div>
           <div class="grid-3">
             {providerList.map((prov) => {
@@ -247,18 +253,11 @@ export function ProxiesPage(props: {
               const total = info?.Total || 0;
               const pct = total > 0 ? Math.min(100, Math.round((used / total) * 100)) : null;
               return (
-                <div
-                  key={prov.name}
-                  style={{
-                    border: '1px solid var(--border)',
-                    borderRadius: 'var(--radius-sm)',
-                    padding: '12px',
-                    background: 'var(--surface-2)'
-                  }}
-                >
+                <div key={prov.name} class="sub-card">
                   <div class="row-between">
-                    <strong>{prov.name}</strong>
+                    <span style={{ fontWeight: 500 }}>{prov.name}</span>
                     <button
+                      type="button"
                       class="btn btn-sm"
                       disabled={updatingProv !== null}
                       onClick={() => void handleUpdateProvider(prov.name)}
@@ -266,12 +265,12 @@ export function ProxiesPage(props: {
                       {updatingProv === prov.name ? '更新中...' : '更新'}
                     </button>
                   </div>
-                  <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '6px' }}>
-                    {prov.proxies?.length ?? 0} 节点 · 更新于 {formatTimeAgo(prov.updatedAt)}
+                  <div style={{ fontSize: '14px', color: 'var(--text-muted)', marginTop: '8px' }}>
+                    <span class="mono">{prov.proxies?.length ?? 0}</span> 节点 · 更新于 {formatTimeAgo(prov.updatedAt)}
                   </div>
                   {pct !== null && (
-                    <div style={{ marginTop: '8px' }}>
-                      <div class="row-between" style={{ fontSize: '11.5px', color: 'var(--text-secondary)', marginBottom: '4px' }}>
+                    <div style={{ marginTop: '12px' }}>
+                      <div class="row-between mono" style={{ fontSize: '14px', color: 'var(--text-muted)', marginBottom: '6px' }}>
                         <span>
                           {formatBytes(used)} / {formatBytes(total)}
                         </span>
@@ -316,7 +315,6 @@ export function ProxiesPage(props: {
           }
 
           const isCollapsed = collapsed[group.name] === true;
-          // In Mihomo, ONLY Selector groups accept manual PUT /proxies/<group> selection
           const isSelectable = group.type === 'Selector';
 
           return (
@@ -327,28 +325,30 @@ export function ProxiesPage(props: {
                   style={{ cursor: 'pointer' }}
                   onClick={() => setCollapsed((c) => ({ ...c, [group.name]: !c[group.name] }))}
                 >
-                  <h3 class="card-title">{group.name}</h3>
-                  <span class="badge badge-purple">{GROUP_TYPE_LABEL[group.type] || group.type}</span>
-                  <span class="badge badge-accent">当前: {group.now || '-'}</span>
-                  <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                    ({filtered.length}/{rawNodes.length})
+                  <h2 class="card-title">{group.name}</h2>
+                  <span class="badge">{GROUP_TYPE_LABEL[group.type] || group.type}</span>
+                  <span class="badge badge-accent">当前：{group.now || '—'}</span>
+                  <span class="mono" style={{ fontSize: '14px', color: 'var(--text-muted)' }}>
+                    {filtered.length} / {rawNodes.length}
                   </span>
                 </div>
                 <div class="row">
                   <button
+                    type="button"
                     class="btn btn-sm"
                     disabled={testingKey !== null}
                     onClick={() => void handleTestGroup(group.name)}
                   >
                     {testingKey === `group:${group.name}` ? (
                       <>
-                        <span class="spinner" style={{ width: '11px', height: '11px' }} /> 测速中...
+                        <span class="spinner" /> 测速中...
                       </>
                     ) : (
                       '整组测速'
                     )}
                   </button>
                   <button
+                    type="button"
                     class="btn btn-sm btn-ghost"
                     onClick={() => setCollapsed((c) => ({ ...c, [group.name]: !c[group.name] }))}
                   >
@@ -391,9 +391,9 @@ export function ProxiesPage(props: {
                           <span class="node-name" title={nodeName}>
                             {nodeName}
                           </span>
-                          <div class="row" style={{ gap: '4px' }}>
-                            {node?.udp && <span class="badge" style={{ padding: '1px 6px', fontSize: '10px' }}>UDP</span>}
-                            {isNested && <span class="badge badge-purple" style={{ padding: '1px 6px', fontSize: '10px' }}>策略组</span>}
+                          <div class="row" style={{ gap: '4px', flexShrink: 0 }}>
+                            {node?.udp && <span class="badge">UDP</span>}
+                            {isNested && <span class="badge">策略组</span>}
                           </div>
                         </div>
                         <div class="node-meta">
@@ -403,7 +403,7 @@ export function ProxiesPage(props: {
                           </span>
                           <button
                             type="button"
-                            class={`badge ${delay === null ? '' : delayColorClass(delay)}`}
+                            class={`badge mono ${delay === null ? '' : delayColorClass(delay)}`}
                             style={{ border: 0, cursor: 'pointer', flexShrink: 0 }}
                             disabled={testingKey !== null}
                             onClick={(e) => void handleTestNode(e, nodeName)}

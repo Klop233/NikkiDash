@@ -1,5 +1,5 @@
 import type { ComponentChildren } from 'preact';
-import { useEffect } from 'preact/hooks';
+import { useEffect, useRef } from 'preact/hooks';
 
 export function ConfirmModal(props: {
   open: boolean;
@@ -14,15 +14,28 @@ export function ConfirmModal(props: {
   onConfirm: () => void;
   onCancel: () => void;
 }) {
+  const cardRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLElement | null>(null);
+
   useEffect(() => {
     if (!props.open) return;
+    triggerRef.current = document.activeElement as HTMLElement | null;
+    const focusTimer = requestAnimationFrame(() => {
+      const firstBtn = cardRef.current?.querySelector<HTMLElement>('button, select, input, [tabindex]');
+      firstBtn?.focus();
+    });
+
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && !props.busy) {
         props.onCancel();
       }
     };
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    return () => {
+      cancelAnimationFrame(focusTimer);
+      window.removeEventListener('keydown', onKey);
+      triggerRef.current?.focus?.();
+    };
   }, [props.open, props.busy, props.onCancel]);
 
   if (!props.open) return null;
@@ -36,11 +49,9 @@ export function ConfirmModal(props: {
         if (e.target === e.currentTarget && !props.busy) props.onCancel();
       }}
     >
-      <div class="modal-card">
-        <h3 style={{ margin: '0 0 8px', fontSize: '16px' }}>{props.title}</h3>
-        {props.message && (
-          <p style={{ margin: '0 0 12px', color: 'var(--text-secondary)', fontSize: '13.5px' }}>{props.message}</p>
-        )}
+      <div class="modal-card" ref={cardRef}>
+        <h3 class="modal-title">{props.title}</h3>
+        {props.message && <p class="modal-message">{props.message}</p>}
         {props.children}
         <div class="modal-actions">
           <button type="button" class="btn" onClick={props.onCancel} disabled={props.busy}>
@@ -48,7 +59,7 @@ export function ConfirmModal(props: {
           </button>
           <button
             type="button"
-            class={`btn ${props.danger ? 'btn-danger' : 'btn-primary'}`}
+            class={`btn ${props.danger ? 'btn-danger-solid' : 'btn-primary'}`}
             onClick={props.onConfirm}
             disabled={props.busy || props.confirmDisabled}
           >

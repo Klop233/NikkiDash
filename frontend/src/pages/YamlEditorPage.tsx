@@ -3,6 +3,7 @@ import yaml from 'js-yaml';
 import { nikkiApi } from '../api/nikki';
 import { StateView } from '../components/StateView';
 import { ConfirmModal } from '../components/ConfirmModal';
+import { IconError, IconInfo, IconWarning } from '../components/Icons';
 import { formatBytes } from '../utils/format';
 import type { ManagedFileEntry } from '../api/types';
 
@@ -38,7 +39,7 @@ export function YamlEditorPage(props: {
       const res = await nikkiApi.listFiles();
       setCatalog(res.files || {});
     } catch (err) {
-      notifyRef.current('error', `加载文件目录失败: ${(err as Error).message}`);
+      notifyRef.current('error', `加载文件目录失败：${(err as Error).message}`);
     }
   }, []);
 
@@ -151,7 +152,6 @@ export function YamlEditorPage(props: {
     }
   }, [writable, isBinary, saving, validateClientYaml, content, selected.category, selected.name, revision, loadCatalog]);
 
-  // Ctrl+S / Cmd+S keyboard save shortcut
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
@@ -213,14 +213,15 @@ export function YamlEditorPage(props: {
     <div>
       <div class="page-header">
         <div>
-          <h2 class="page-title">高级 YAML 编辑器</h2>
+          <h1 class="page-title">高级 YAML 编辑器</h1>
           <p class="page-desc">
-            编辑 mixin.yaml、本地 Profile 与文本 Provider 文件（支持大文件完整读写、Ctrl+S 保存、服务端 yq 二次校验与自动备份）
+            编辑 mixin.yaml、本地 Profile 与文本 Provider 文件，支持 Ctrl+S 保存、服务端 yq 二次校验与自动备份
           </p>
         </div>
-        <div class="row">
-          {dirty && <span class="badge badge-amber">有未保存更改</span>}
+        <div class="row" style={{ gap: '12px' }}>
+          {dirty && <span class="badge badge-lg badge-amber">有未保存更改</span>}
           <button
+            type="button"
             class="btn"
             disabled={isBinary || loading}
             onClick={() => {
@@ -229,41 +230,50 @@ export function YamlEditorPage(props: {
           >
             本地语法检查
           </button>
-          <button class="btn btn-primary" disabled={!writable || isBinary || saving || loading} onClick={() => void handleSave()}>
+          <button
+            type="button"
+            class="btn btn-primary"
+            disabled={!writable || isBinary || saving || loading}
+            onClick={() => void handleSave()}
+          >
             {saving ? '校验保存中...' : '保存文件 (Ctrl+S)'}
           </button>
         </div>
       </div>
 
       {selected.category === 'run_config' && (
-        <div class="alert alert-info">
-          <div>
-            <strong>/etc/nikki/run/config.yaml 为只读运行文件：</strong>
-            每次启动 Nikki 时都会重新生成。如需持久化修改，请编辑 <span class="mono">mixin.yaml</span> 或原始 Profile。
+        <div class="alert alert-info" role="status">
+          <IconInfo className="alert-icon" />
+          <div class="alert-body">
+            <span class="mono">/etc/nikki/run/config.yaml</span> 为只读运行文件，每次启动 Nikki 时都会重新生成。如需持久化修改，请编辑{' '}
+            <span class="mono">mixin.yaml</span> 或原始 Profile。
           </div>
         </div>
       )}
 
       {selected.category === 'subscription' && (
-        <div class="alert alert-warning">
-          <div>
-            <strong>注意：</strong>直接编辑订阅缓存文件会在下一次更新订阅时被覆盖，建议将自定义规则写在 <span class="mono">mixin.yaml</span>。
+        <div class="alert alert-warning" role="status">
+          <IconWarning className="alert-icon" />
+          <div class="alert-body">
+            直接编辑订阅缓存文件会在下一次更新订阅时被覆盖，建议将自定义规则写在 <span class="mono">mixin.yaml</span>。
           </div>
         </div>
       )}
 
       {clientYamlErr && (
-        <div class="alert alert-danger">
-          <div class="mono" style={{ fontSize: '12px' }}>
+        <div class="alert alert-danger" role="alert">
+          <IconError className="alert-icon" />
+          <div class="alert-body mono" style={{ fontSize: '14px', lineHeight: '22px' }}>
             YAML 语法错误：{clientYamlErr}
           </div>
         </div>
       )}
 
       <div class="card">
-        <div class="row-between" style={{ marginBottom: '12px' }}>
+        <div class="row-between" style={{ marginBottom: '16px' }}>
           <select
             class="select"
+            aria-label="选择编辑文件"
             style={{ maxWidth: '420px' }}
             value={`${selected.category}::${selected.name}`}
             onChange={(e) => {
@@ -291,22 +301,27 @@ export function YamlEditorPage(props: {
                 {lineCount} 行 · {formatBytes(fileSize || new TextEncoder().encode(content).length)}
               </span>
             )}
-            <span class={`badge ${isBinary ? 'badge-purple' : writable ? 'badge-green' : 'badge-amber'}`}>
+            <span class={`badge ${isBinary ? '' : writable ? 'badge-green' : 'badge-amber'}`}>
               {isBinary ? '二进制文件' : writable ? '可写' : '只读'}
             </span>
-            <button class="btn btn-sm" onClick={() => void loadFile(selected.category, selected.name)} disabled={loading}>
+            <button
+              type="button"
+              class="btn btn-sm"
+              onClick={() => void loadFile(selected.category, selected.name)}
+              disabled={loading}
+            >
               重新读取
             </button>
           </div>
         </div>
 
         {loading ? (
-          <StateView kind="loading" title="正在完整读取文件内容..." />
+          <StateView kind="loading" title="正在读取文件内容" />
         ) : isBinary ? (
           <StateView
             kind="empty"
-            title={`${selected.name} 是二进制规则集 / 数据库文件`}
-            message="Mihomo 的 .mrs / .dat / .mmdb 二进制文件不支持以纯文本编辑；若需更新请前往「规则与提供者」点击更新。"
+            title={`${selected.name} 是二进制文件`}
+            message="Mihomo 的 .mrs / .dat / .mmdb 二进制文件不支持纯文本编辑；若需更新请前往「规则与提供者」点击更新。"
           />
         ) : loadError ? (
           <StateView
@@ -319,6 +334,7 @@ export function YamlEditorPage(props: {
         ) : (
           <textarea
             class="textarea"
+            aria-label="YAML 编辑区域"
             style={{ minHeight: '480px', tabSize: 2 }}
             spellcheck={false}
             readOnly={!writable}
@@ -335,12 +351,13 @@ export function YamlEditorPage(props: {
 
       {dirty && (
         <div class="sticky-savebar">
-          <div style={{ fontSize: '13px', fontWeight: 600 }}>
+          <div style={{ fontSize: '14px', fontWeight: 500 }}>
             当前文件 <span class="mono">{selected.name}</span> 有未保存更改
           </div>
-          <div class="row">
+          <div class="row" style={{ gap: '8px' }}>
             <button
-              class="btn btn-sm"
+              type="button"
+              class="btn"
               onClick={() => {
                 setContent(savedContent);
                 setClientYamlErr(null);
@@ -348,7 +365,7 @@ export function YamlEditorPage(props: {
             >
               还原修改
             </button>
-            <button class="btn btn-sm btn-primary" disabled={saving} onClick={() => void handleSave()}>
+            <button type="button" class="btn btn-primary" disabled={saving} onClick={() => void handleSave()}>
               {saving ? '保存中...' : '校验并保存'}
             </button>
           </div>
@@ -356,26 +373,26 @@ export function YamlEditorPage(props: {
       )}
 
       {writable && !isBinary && backups.length > 0 && (
-        <div class="card">
-          <div class="card-header">
-            <h3 class="card-title">历史备份（最多保留 5 份）</h3>
+        <section class="card-flush" aria-label="历史备份列表">
+          <div class="card-toolbar">
+            <h2 class="card-title">历史备份（最多保留 5 份）</h2>
           </div>
           <div class="table-wrap">
             <table class="data-table">
               <thead>
                 <tr>
                   <th>备份 ID</th>
-                  <th>大小</th>
-                  <th>操作</th>
+                  <th class="th-right">大小</th>
+                  <th class="th-right">操作</th>
                 </tr>
               </thead>
               <tbody>
                 {backups.map((b) => (
                   <tr key={b.id}>
                     <td class="mono">{b.id}</td>
-                    <td class="mono">{formatBytes(b.size)}</td>
-                    <td>
-                      <button class="btn btn-sm" onClick={() => setRestoreId(b.id)}>
+                    <td class="mono td-right">{formatBytes(b.size)}</td>
+                    <td class="td-right">
+                      <button type="button" class="op-btn" onClick={() => setRestoreId(b.id)}>
                         恢复此备份
                       </button>
                     </td>
@@ -384,21 +401,21 @@ export function YamlEditorPage(props: {
               </tbody>
             </table>
           </div>
-        </div>
+        </section>
       )}
 
       <ConfirmModal
         open={restoreId !== null}
         title="恢复历史备份？"
         message={`将使用备份 ${restoreId} 覆盖当前文件内容（当前内容会先自动再备份一份）。`}
-        confirmLabel="确认恢复"
+        confirmLabel="恢复备份"
         onConfirm={handleRestore}
         onCancel={() => setRestoreId(null)}
       />
 
       <ConfirmModal
         open={pendingTarget !== null}
-        title="放弃当前未保存的 YAML 修改？"
+        title="放弃当前未保存的修改？"
         message={`切换到 ${pendingTarget?.name || ''} 将丢弃对 ${selected.name} 的未保存修改。`}
         danger
         confirmLabel="放弃并切换"

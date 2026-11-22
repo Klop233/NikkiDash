@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { nikkiApi } from '../api/nikki';
 import { StateView } from '../components/StateView';
+import { IconInfo, IconSearch } from '../components/Icons';
 import type { AsyncTask, ConfigResponse, ProfilesResponse, SchemaOptionSpec } from '../api/types';
 
 type TabKey = 'basic' | 'procd' | 'proxy' | 'acl' | 'mixin_general' | 'tun_dns' | 'sniffer_rules' | 'routing' | 'log';
@@ -579,7 +580,7 @@ export function SettingsPage(props: {
     return (
       <div class="card">
         <div class="card-header">
-          <h3 class="card-title">{title}</h3>
+          <h2 class="card-title">{title}</h2>
           <span class="badge mono">nikki.{sec}</span>
         </div>
         <div class="grid-2">{keys.map((k) => spec.options[k] && renderField(sec, k, spec.options[k]))}</div>
@@ -596,30 +597,25 @@ export function SettingsPage(props: {
     return (
       <div class="card">
         <div class="card-header">
-          <h3 class="card-title">
+          <h2 class="card-title">
             {title} ({rows.length})
-          </h3>
+          </h2>
           {spec.addremove && (
-            <button type="button" class="btn btn-sm btn-primary" onClick={() => addRepRow(rtype)}>
+            <button type="button" class="btn btn-sm" onClick={() => addRepRow(rtype)}>
               添加一项
             </button>
           )}
         </div>
         {rows.length === 0 ? (
-          <div style={{ color: 'var(--text-muted)', fontSize: '13px' }}>暂无条目</div>
+          <div style={{ color: 'var(--text-muted)', fontSize: '14px' }}>暂无条目</div>
         ) : (
           <div class="stack">
             {rows.map((row, idx) => (
               <div
                 key={`${rtype}-${idx}-${String(row['.name'] || '')}`}
-                style={{
-                  border: '1px solid var(--border)',
-                  borderRadius: 'var(--radius-sm)',
-                  padding: '12px',
-                  background: 'var(--surface-2)'
-                }}
+                class="sub-card"
               >
-                <div class="row-between" style={{ marginBottom: '10px' }}>
+                <div class="row-between" style={{ marginBottom: '12px' }}>
                   <span class="badge mono">#{idx + 1}</span>
                   <div class="row">
                     {spec.sortable && (
@@ -761,38 +757,42 @@ export function SettingsPage(props: {
     <div>
       <div class="page-header">
         <div>
-          <h2 class="page-title">Nikki 完整设置</h2>
+          <h1 class="page-title">Nikki 完整设置</h1>
           <p class="page-desc">
             完整覆盖 OpenWrt-nikki UCI 配置（Schema v{cfg?.schema_version}），保存采用乐观并发校验、配置测试与失败自动回滚
           </p>
         </div>
-        <div class="row">
-          <input
-            class="input"
-            style={{ width: '220px' }}
-            placeholder="全局搜索设置项..."
-            value={search}
-            onInput={(e) => setSearch((e.currentTarget as HTMLInputElement).value)}
-          />
-          <button class="btn" onClick={() => void load()} disabled={saving}>
+        <div class="row" style={{ gap: '8px' }}>
+          <label class="search-box" style={{ width: '220px' }}>
+            <IconSearch />
+            <input
+              type="search"
+              aria-label="全局搜索设置项"
+              placeholder="全局搜索设置项"
+              value={search}
+              onInput={(e) => setSearch((e.currentTarget as HTMLInputElement).value)}
+            />
+          </label>
+          <button type="button" class="btn" onClick={() => void load()} disabled={saving}>
             重新加载
           </button>
-          <button class="btn" onClick={() => void submitAction('test')} disabled={saving}>
+          <button type="button" class="btn" onClick={() => void submitAction('test')} disabled={saving}>
             测试配置
           </button>
-          <button class="btn" onClick={() => void submitAction('save')} disabled={saving || !dirty}>
+          <button type="button" class="btn" onClick={() => void submitAction('save')} disabled={saving || !dirty}>
             仅保存 UCI
           </button>
-          <button class="btn btn-primary" onClick={() => void submitAction('apply')} disabled={saving}>
+          <button type="button" class="btn btn-primary" onClick={() => void submitAction('apply')} disabled={saving}>
             {saving ? '提交中...' : '保存并应用'}
           </button>
         </div>
       </div>
 
       {(unknownOptCount > 0 || unknownSecCount > 0) && (
-        <div class="alert alert-info">
-          <div>
-            检测到 {unknownOptCount} 个扩展/旧版 UCI 字段和 {unknownSecCount} 个扩展 Section。NikkiDash 保存时会自动无损保留它们。
+        <div class="alert alert-info" role="status">
+          <IconInfo className="alert-icon" />
+          <div class="alert-body">
+            检测到 {unknownOptCount} 个扩展或旧版 UCI 字段与 {unknownSecCount} 个扩展 Section，NikkiDash 保存时会自动无损保留。
           </div>
         </div>
       )}
@@ -800,18 +800,20 @@ export function SettingsPage(props: {
       {search.trim().length > 0 ? (
         <div class="card">
           <div class="card-header">
-            <h3 class="card-title">搜索结果 ({searchMatches.length})</h3>
-            <button class="btn btn-sm" onClick={() => setSearch('')}>
+            <h2 class="card-title">搜索结果 ({searchMatches.length})</h2>
+            <button type="button" class="btn btn-ghost" onClick={() => setSearch('')}>
               清除搜索
             </button>
           </div>
           {searchMatches.length === 0 ? (
-            <div style={{ color: 'var(--text-muted)', padding: '14px 0' }}>未找到匹配的设置项</div>
+            <div style={{ color: 'var(--text-muted)', padding: '16px 0', fontSize: '16px' }}>
+              没有找到「{search.trim()}」相关的设置项
+            </div>
           ) : (
             <div class="grid-2">
               {searchMatches.map(({ sec, opt, spec }) => (
                 <div key={`${sec}.${opt}`}>
-                  <div class="mono" style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '2px' }}>
+                  <div class="mono" style={{ fontSize: '14px', color: 'var(--text-muted)', marginBottom: '4px' }}>
                     nikki.{sec}.{opt}
                   </div>
                   {renderField(sec, opt, spec, true)}
@@ -822,7 +824,7 @@ export function SettingsPage(props: {
         </div>
       ) : (
         <>
-          <div class="tabs">
+          <div class="tabs" role="tablist" aria-label="设置分类">
             {(
               [
                 ['basic', '基本'],
@@ -836,7 +838,14 @@ export function SettingsPage(props: {
                 ['log', '日志策略']
               ] as Array<[TabKey, string]>
             ).map(([k, label]) => (
-              <button key={k} class={`tab-btn ${tab === k ? 'active' : ''}`} onClick={() => setTab(k)}>
+              <button
+                key={k}
+                type="button"
+                role="tab"
+                aria-selected={tab === k}
+                class={`tab-btn ${tab === k ? 'active' : ''}`}
+                onClick={() => setTab(k)}
+              >
                 {label}
               </button>
             ))}
@@ -913,18 +922,18 @@ export function SettingsPage(props: {
 
       {dirty && (
         <div class="sticky-savebar">
-          <div style={{ fontSize: '13px', fontWeight: 600 }}>你有尚未保存的 UCI 配置更改</div>
-          <div class="row">
-            <button class="btn btn-sm" disabled={saving} onClick={() => void load()}>
+          <div style={{ fontSize: '14px', fontWeight: 500 }}>你有尚未保存的 UCI 配置更改</div>
+          <div class="row" style={{ gap: '8px' }}>
+            <button type="button" class="btn" disabled={saving} onClick={() => void load()}>
               放弃更改
             </button>
-            <button class="btn btn-sm" disabled={saving} onClick={() => void submitAction('test')}>
+            <button type="button" class="btn" disabled={saving} onClick={() => void submitAction('test')}>
               测试配置
             </button>
-            <button class="btn btn-sm" disabled={saving} onClick={() => void submitAction('save')}>
+            <button type="button" class="btn" disabled={saving} onClick={() => void submitAction('save')}>
               仅保存 UCI
             </button>
-            <button class="btn btn-sm btn-primary" disabled={saving} onClick={() => void submitAction('apply')}>
+            <button type="button" class="btn btn-primary" disabled={saving} onClick={() => void submitAction('apply')}>
               {saving ? '提交中...' : '保存并应用'}
             </button>
           </div>

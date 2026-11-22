@@ -15,7 +15,7 @@ function readStoredTheme(fallback: ThemeMode): ThemeMode {
 
 export function useTheme(initial: ThemeMode = 'system') {
   const [theme, setThemeState] = useState<ThemeMode>(() => readStoredTheme(initial));
-  const [resolvedTheme, setResolvedTheme] = useState<'dark' | 'light'>('dark');
+  const [resolvedTheme, setResolvedTheme] = useState<'dark' | 'light'>('light');
 
   const setTheme = useCallback((next: ThemeMode) => {
     setThemeState(next);
@@ -32,18 +32,18 @@ export function useTheme(initial: ThemeMode = 'system') {
 
   useEffect(() => {
     const apply = () => {
-      let resolved: 'dark' | 'light' = 'dark';
-      if (theme === 'light') resolved = 'light';
-      else if (theme === 'dark') resolved = 'dark';
+      let resolved: 'dark' | 'light' = 'light';
+      if (theme === 'dark') resolved = 'dark';
+      else if (theme === 'light') resolved = 'light';
       else if (typeof window !== 'undefined' && window.matchMedia) {
-        resolved = window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+        resolved = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
       }
       setResolvedTheme(resolved);
       document.documentElement.setAttribute('data-theme', resolved);
     };
     apply();
     if (theme === 'system' && typeof window !== 'undefined' && window.matchMedia) {
-      const mq = window.matchMedia('(prefers-color-scheme: light)');
+      const mq = window.matchMedia('(prefers-color-scheme: dark)');
       mq.addEventListener?.('change', apply);
       return () => mq.removeEventListener?.('change', apply);
     }
