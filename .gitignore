@@ -1,0 +1,13 @@
+node_modules/
+dist/
+*.ipk
+*.apk
+.DS_Store
+Thumbs.db
+frontend/dist/
+frontend/coverage/
+package/nikki-dash/files/www/nikki-dash/
+!package/nikki-dash/files/www/nikki-dash/.gitkeep
+tmp/
+.env
+.env.*

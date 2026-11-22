@@ -1,0 +1,746 @@
+#!/usr/bin/ucode
+
+'use strict';
+
+import { access, lstat, lsdir, readfile, unlink } from 'fs';
+import { cursor } from 'uci';
+import { connect } from 'ubus';
+import {
+	DASH_VERSION, NIKKI_PROFILES_DIR, NIKKI_SUBSCRIPTIONS_DIR, NIKKI_STARTED_FLAG,
+	is_valid_basename, is_valid_section_id, is_safe_url, compute_config_revision,
+	acquire_lock, release_lock, exec_argv, cmd_exists, get_caller_session,
+	err_res, ok_res
+} from '/usr/share/nikki-dash/lib/common.uc';
+import { load_schema, read_nikki_config, validate_option } from '/usr/share/nikki-dash/lib/schema.uc';
+import {
+	resolve_controller, controller_public_info, api_version, api_get_configs,
+	api_set_mode, api_get_proxies, api_get_proxy_providers, api_select_proxy,
+	api_test_delay, api_get_connections, api_close_connection,
+	api_close_all_connections, api_get_rules, api_get_rule_providers, api_update_provider
+} from '/usr/share/nikki-dash/lib/mihomo.uc';
+import {
+	list_catalog, read_managed_file, save_managed_file, list_file_backups,
+	restore_file_backup, upload_begin, upload_chunk, upload_commit, resolve_safe_path
+} from '/usr/share/nikki-dash/lib/files.uc';
+import {
+	spawn_async_task, read_task_state, list_recent_tasks, save_config_sync
+} from '/usr/share/nikki-dash/lib/tx.uc';
+import { get_access_config, set_access_config } from '/usr/share/nikki-dash/lib/access.uc';
+import {
+	get_capabilities, get_system_identifiers, detect_conflicts,
+	read_logs, clear_logs, build_diagnostics
+} from '/usr/share/nikki-dash/lib/diagnostics.uc';
+
+const ubus = connect();
+
+function get_nikki_service_state() {
+	let svc = ubus.call('service', 'list', { name: 'nikki' });
+	let inst = svc?.nikki?.instances?.nikki;
+	let running = inst?.running == true;
+	let pid = inst?.pid ?? null;
+
+	let uptime = 0;
+	if (running && pid) {
+		let pst = lstat(`/proc/${pid}`);
+		if (pst && pst.ctime) {
+			let d = time() - pst.ctime;
+			uptime = d > 0 ? d : 0;
+		}
+	}
+
+	let nft_ok = false;
+	if (running && cmd_exists('nft')) {
+		let r = exec_argv(['nft', 'list', 'tables']);
+		if (r.code == 0 && index(r.stdout, 'nikki') >= 0) nft_ok = true;
+	}
+
+	return {
+		running: running,
+		pid: pid,
+		uptime: uptime,
+		started_flag: lstat(NIKKI_STARTED_FLAG) != null,
+		nft_hijack_ok: nft_ok
+	};
+}
+
+const methods = {
+	/* Unauthenticated safe pre-login metadata */
+	auth_info: {
+		call: function() {
+			let uci = cursor();
+			let mode = uci.get('nikki_dash', 'main', 'access_mode') ?? 'lan_auth';
+			let rpcd_guest = cursor().get('rpcd', 'nikki_dash_guest') != null;
+			return {
+				version: DASH_VERSION,
+				title: 'NikkiDash',
+				access_mode: mode,
+				lan_guest_enabled: (mode == 'lan_guest' && rpcd_guest),
+				default_theme: uci.get('nikki_dash', 'main', 'theme') ?? 'system',
+				default_lang: uci.get('nikki_dash', 'main', 'lang') ?? 'zh-CN',
+				wan_warning: mode == 'wan_https'
+			};
+		}
+	},
+
+	capabilities: {
+		call: function(req) {
+			let caller = get_caller_session(ubus, req);
+			return get_capabilities(ubus, caller);
+		}
+	},
+
+	get_status: {
+		call: function() {
+			let uci = cursor();
+			let svc = get_nikki_service_state();
+			let ctrl = resolve_controller();
+			let ctrl_pub = controller_public_info(ctrl);
+
+			let ctrl_reachable = false;
+			let ctrl_error = null;
+			let core_version = '';
+			let runtime_mode = uci.get('nikki', 'mixin', 'mode') ?? 'rule';
+
+			if (svc.running && ctrl.configured) {
+				let vr = api_version(ctrl);
+				if (vr.ok) {
+					ctrl_reachable = true;
+					core_version = vr.data?.version ?? '';
+					let cr = api_get_configs(ctrl);
+					if (cr.ok && cr.data?.mode) runtime_mode = cr.data.mode;
+				} else {
+					ctrl_error = vr.error;
+				}
+			}
+
+			let recent = list_recent_tasks(5);
+			let active_tasks = filter(recent.tasks ?? [], (t) => t.status == 'queued' || t.status == 'running');
+
+			let tun_device = uci.get('nikki', 'mixin', 'tun_device') ?? 'nikki';
+			let tun_up = false;
+			if (svc.running && cmd_exists('ip')) {
+				let tr = exec_argv(['ip', 'link', 'show', 'dev', tun_device]);
+				if (tr.code == 0 && index(tr.stdout, 'UP') >= 0) tun_up = true;
+			}
+
+			return ok_res({
+				running: svc.running,
+				pid: svc.pid,
+				uptime: svc.uptime,
+				enabled: uci.get('nikki', 'config', 'enabled') == '1',
+				profile: uci.get('nikki', 'config', 'profile') ?? '',
+				core_only: uci.get('nikki', 'config', 'core_only') == '1',
+				proxy_enabled: uci.get('nikki', 'proxy', 'enabled') == '1',
+				tcp_mode: uci.get('nikki', 'proxy', 'tcp_mode') ?? '',
+				udp_mode: uci.get('nikki', 'proxy', 'udp_mode') ?? '',
+				dns_mode: uci.get('nikki', 'mixin', 'dns_mode') ?? '',
+				mode: runtime_mode,
+				core_version: core_version,
+				dash_version: DASH_VERSION,
+				revision: compute_config_revision(),
+				controller: {
+					...ctrl_pub,
+					reachable: ctrl_reachable,
+					error: ctrl_error
+				},
+				health: {
+					controller_ok: ctrl_reachable,
+					nft_hijack_ok: svc.nft_hijack_ok,
+					tun_up: tun_up,
+					conflicts: detect_conflicts(ubus)
+				},
+				active_tasks: active_tasks
+			});
+		}
+	},
+
+	get_overview_metrics: {
+		call: function() {
+			let ctrl = resolve_controller();
+			if (!ctrl.configured) {
+				return err_res('CONTROLLER_UNCONFIGURED', 'Controller not configured');
+			}
+			let conns = api_get_connections();
+			if (!conns.ok) return conns;
+
+			let cfgs = api_get_configs(ctrl);
+			let proxies = api_get_proxies();
+
+			let list = conns.data?.connections ?? [];
+			let groups = [];
+			if (proxies.ok && type(proxies.data?.proxies) == 'object') {
+				let pmap = proxies.data.proxies;
+				for (let gname in pmap) {
+					let p = pmap[gname];
+					if (p && type(p.all) == 'array' && gname != 'GLOBAL') {
+						push(groups, {
+							name: gname,
+							type: p.type ?? '',
+							now: p.now ?? '',
+							count: length(p.all)
+						});
+					}
+				}
+			}
+
+			return ok_res({
+				mode: cfgs.ok ? (cfgs.data?.mode ?? 'rule') : 'rule',
+				upload_total: conns.data?.uploadTotal ?? 0,
+				download_total: conns.data?.downloadTotal ?? 0,
+				memory: conns.data?.memory ?? 0,
+				connection_count: length(list),
+				groups: slice(groups, 0, 12),
+				timestamp: time()
+			});
+		}
+	},
+
+	get_config: {
+		call: function() {
+			let cfg = read_nikki_config(false);
+			return ok_res({
+				...cfg,
+				revision: compute_config_revision(),
+				schema: load_schema(),
+				identifiers: get_system_identifiers(ubus)
+			});
+		}
+	},
+
+	get_profiles: {
+		call: function() {
+			let uci = cursor();
+			let active = uci.get('nikki', 'config', 'profile') ?? '';
+			let all = uci.get_all('nikki') ?? {};
+
+			let subs = [];
+			for (let sid in all) {
+				let sec = all[sid];
+				if (sec?.['.type'] != 'subscription') continue;
+				let fpath = `${NIKKI_SUBSCRIPTIONS_DIR}/${sid}.yaml`;
+				let st = lstat(fpath);
+				push(subs, {
+					id: sid,
+					name: sec.name ?? sid,
+					url: sec.url ?? '',
+					info_url: sec.info_url ?? '',
+					user_agent: sec.user_agent ?? 'clash',
+					prefer: sec.prefer ?? 'remote',
+					expire: sec.expire ?? '',
+					upload: sec.upload ?? '',
+					download: sec.download ?? '',
+					total: sec.total ?? '',
+					used: sec.used ?? '',
+					avaliable: sec.avaliable ?? '',
+					update: sec.update ?? '',
+					success: sec.success ?? '',
+					file_exists: st != null && st.type == 'file',
+					file_size: st?.size ?? 0,
+					active: active == `subscription:${sid}`,
+					index: sec['.index'] ?? 9999
+				});
+			}
+			sort(subs, (a, b) => a.index - b.index);
+
+			let files = [];
+			let entries = lsdir(NIKKI_PROFILES_DIR) ?? [];
+			sort(entries);
+			for (let e in entries) {
+				if (!is_valid_basename(e) || !match(e, /\.(ya?ml)$/i)) continue;
+				let st = lstat(`${NIKKI_PROFILES_DIR}/${e}`);
+				if (!st || st.type != 'file') continue;
+				push(files, {
+					name: e,
+					size: st.size,
+					mtime: st.mtime,
+					active: active == `file:${e}`
+				});
+			}
+
+			return ok_res({
+				active_profile: active,
+				subscriptions: subs,
+				files: files,
+				revision: compute_config_revision()
+			});
+		}
+	},
+
+	/* ==================== Mihomo Allowlisted Operations ==================== */
+
+	get_proxies: {
+		call: function() {
+			let p = api_get_proxies();
+			if (!p.ok) return p;
+			let prov = api_get_proxy_providers();
+			return ok_res({
+				proxies: p.data?.proxies ?? {},
+				providers: prov.ok ? (prov.data?.providers ?? {}) : {}
+			});
+		}
+	},
+
+	select_proxy: {
+		args: { group: '', name: '' },
+		call: function(req) {
+			return api_select_proxy(req.args?.group, req.args?.name);
+		}
+	},
+
+	test_delay: {
+		args: { kind: '', name: '', url: '', timeout: 0 },
+		call: function(req) {
+			let kind = req.args?.kind ?? 'proxy';
+			let r = api_test_delay(kind, req.args?.name, req.args?.url, req.args?.timeout);
+			if (!r.ok) return r;
+			return ok_res({ kind: kind, name: req.args?.name, result: r.data });
+		}
+	},
+
+	set_mode: {
+		args: { mode: '', persist: false },
+		call: function(req) {
+			let mode = req.args?.mode;
+			let r = api_set_mode(mode);
+			if (!r.ok) return r;
+			if (req.args?.persist) {
+				let uci = cursor();
+				uci.set('nikki', 'mixin', 'mode', mode);
+				uci.commit('nikki');
+			}
+			return ok_res({ mode: mode, persisted: req.args?.persist == true });
+		}
+	},
+
+	get_connections: {
+		call: function() {
+			let r = api_get_connections();
+			if (!r.ok) return r;
+			return ok_res({
+				upload_total: r.data?.uploadTotal ?? 0,
+				download_total: r.data?.downloadTotal ?? 0,
+				memory: r.data?.memory ?? 0,
+				connections: r.data?.connections ?? []
+			});
+		}
+	},
+
+	close_connection: {
+		args: { id: '' },
+		call: function(req) {
+			return api_close_connection(req.args?.id);
+		}
+	},
+
+	close_all_connections: {
+		call: function() {
+			return api_close_all_connections();
+		}
+	},
+
+	get_rules: {
+		call: function() {
+			let rules = api_get_rules();
+			if (!rules.ok) return rules;
+			let rprov = api_get_rule_providers();
+			let pprov = api_get_proxy_providers();
+			return ok_res({
+				rules: rules.data?.rules ?? [],
+				rule_providers: rprov.ok ? (rprov.data?.providers ?? {}) : {},
+				proxy_providers: pprov.ok ? (pprov.data?.providers ?? {}) : {}
+			});
+		}
+	},
+
+	update_provider: {
+		args: { kind: '', name: '' },
+		call: function(req) {
+			return api_update_provider(req.args?.kind, req.args?.name);
+		}
+	},
+
+	/* ==================== Logs & Diagnostics ==================== */
+
+	get_logs: {
+		args: { source: '', tail_lines: 0, max_bytes: 0 },
+		call: function(req) {
+			return read_logs(req.args?.source ?? 'app', req.args?.tail_lines, req.args?.max_bytes);
+		}
+	},
+
+	clear_logs: {
+		args: { source: '' },
+		call: function(req) {
+			return clear_logs(req.args?.source ?? 'app');
+		}
+	},
+
+	get_diagnostics: {
+		call: function() {
+			return build_diagnostics(ubus);
+		}
+	},
+
+	/* ==================== Managed Files & Chunked Upload ==================== */
+
+	list_files: {
+		call: function() {
+			return list_catalog();
+		}
+	},
+
+	read_file: {
+		args: { category: '', name: '', offset: 0, max_bytes: 0 },
+		call: function(req) {
+			return read_managed_file(req.args?.category, req.args?.name, req.args?.offset, req.args?.max_bytes);
+		}
+	},
+
+	save_file: {
+		args: { category: '', name: '', content: '', expected_revision: '', require_clash_keys: false },
+		call: function(req) {
+			return save_managed_file(
+				req.args?.category,
+				req.args?.name,
+				req.args?.content,
+				req.args?.expected_revision,
+				req.args?.require_clash_keys
+			);
+		}
+	},
+
+	upload_begin: {
+		args: { category: '', name: '', total_size: 0, expected_revision: '' },
+		call: function(req) {
+			return upload_begin(req.args?.category, req.args?.name, req.args?.total_size, req.args?.expected_revision);
+		}
+	},
+
+	upload_chunk: {
+		args: { upload_id: '', chunk_b64: '', seq: 0 },
+		call: function(req) {
+			return upload_chunk(req.args?.upload_id, req.args?.chunk_b64, req.args?.seq);
+		}
+	},
+
+	upload_commit: {
+		args: { upload_id: '', require_clash_keys: false },
+		call: function(req) {
+			return upload_commit(req.args?.upload_id, req.args?.require_clash_keys);
+		}
+	},
+
+	list_backups: {
+		args: { category: '', name: '' },
+		call: function(req) {
+			return list_file_backups(req.args?.category, req.args?.name);
+		}
+	},
+
+	restore_backup: {
+		args: { category: '', name: '', backup_id: '' },
+		call: function(req) {
+			return restore_file_backup(req.args?.category, req.args?.name, req.args?.backup_id);
+		}
+	},
+
+	/* ==================== Profiles & Subscriptions ==================== */
+
+	import_profile: {
+		args: { name: '', content: '', activate: false },
+		call: function(req) {
+			let r = save_managed_file('profile', req.args?.name, req.args?.content, '', true);
+			if (!r.ok) return r;
+			if (req.args?.activate) {
+				let uci = cursor();
+				uci.set('nikki', 'config', 'profile', `file:${req.args.name}`);
+				uci.commit('nikki');
+			}
+			return ok_res({ ...r, profile: `file:${req.args.name}`, revision: compute_config_revision() });
+		}
+	},
+
+	delete_profile: {
+		args: { name: '', fallback_profile: '', force_stop: false },
+		call: function(req) {
+			let name = req.args?.name;
+			let rp = resolve_safe_path('profile', name, true);
+			if (!rp.ok) return rp;
+			if (!rp.exists) return err_res('NOT_FOUND', 'Profile file does not exist');
+
+			let lock = acquire_lock('delete_profile', 30);
+			if (!lock.ok) return err_res('LOCKED', lock.error);
+
+			let uci = cursor();
+			let active = uci.get('nikki', 'config', 'profile') ?? '';
+			if (active == `file:${name}`) {
+				if (req.args?.fallback_profile && length(req.args.fallback_profile) > 0) {
+					uci.set('nikki', 'config', 'profile', req.args.fallback_profile);
+					uci.commit('nikki');
+				} else if (req.args?.force_stop) {
+					uci.set('nikki', 'config', 'enabled', '0');
+					uci.delete('nikki', 'config', 'profile');
+					uci.commit('nikki');
+					exec_argv(['/etc/init.d/nikki', 'stop']);
+				} else {
+					release_lock();
+					return err_res('ACTIVE_PROFILE_PROTECTED', 'Cannot delete active profile without switching to another profile or stopping Nikki');
+				}
+			}
+
+			unlink(rp.path);
+			release_lock();
+			return ok_res({ deleted: name, revision: compute_config_revision() });
+		}
+	},
+
+	save_subscription: {
+		args: { id: '', name: '', url: '', info_url: '', user_agent: '', prefer: '', revision: '' },
+		call: function(req) {
+			let name = trim(req.args?.name ?? '');
+			let url = trim(req.args?.url ?? '');
+			let info_url = trim(req.args?.info_url ?? '');
+			let ua = trim(req.args?.user_agent ?? 'clash');
+			let prefer = req.args?.prefer ?? 'remote';
+
+			if (length(name) == 0 || length(name) > 128 || (index(name, chr(0)) >= 0 || match(name, /[\r\n]/))) {
+				return err_res('INVALID_PARAM', 'Subscription name is required');
+			}
+			if (!is_safe_url(url)) {
+				return err_res('INVALID_PARAM', 'Subscription URL must be a valid http(s) URL');
+			}
+			if (length(info_url) > 0 && !is_safe_url(info_url)) {
+				return err_res('INVALID_PARAM', 'Subscription Info URL must be a valid http(s) URL');
+			}
+			if (prefer != 'remote' && prefer != 'local') {
+				return err_res('INVALID_PARAM', 'Prefer must be remote or local');
+			}
+
+			let lock = acquire_lock('save_subscription', 30);
+			if (!lock.ok) return err_res('LOCKED', lock.error);
+
+			let cur_rev = compute_config_revision();
+			if (req.args?.revision && length(req.args.revision) > 0 && req.args.revision != cur_rev) {
+				release_lock();
+				return err_res('REVISION_CONFLICT', 'Config changed externally; reload before saving', {
+					current_revision: cur_rev
+				});
+			}
+
+			let uci = cursor();
+			let sid = req.args?.id;
+			if (sid && length(sid) > 0) {
+				if (!is_valid_section_id(sid) || uci.get('nikki', sid) != 'subscription') {
+					release_lock();
+					return err_res('NOT_FOUND', 'Subscription section not found');
+				}
+			} else {
+				sid = uci.add('nikki', 'subscription');
+			}
+
+			uci.set('nikki', sid, 'name', name);
+			uci.set('nikki', sid, 'url', url);
+			if (length(info_url) > 0) uci.set('nikki', sid, 'info_url', info_url);
+			else uci.delete('nikki', sid, 'info_url');
+			uci.set('nikki', sid, 'user_agent', ua);
+			uci.set('nikki', sid, 'prefer', prefer);
+			uci.commit('nikki');
+
+			release_lock();
+			return ok_res({
+				id: sid,
+				http_warning: substr(lc(url), 0, 7) == 'http://',
+				revision: compute_config_revision()
+			});
+		}
+	},
+
+	delete_subscription: {
+		args: { id: '', fallback_profile: '', force_stop: false },
+		call: function(req) {
+			let sid = req.args?.id;
+			if (!is_valid_section_id(sid)) {
+				return err_res('INVALID_PARAM', 'Invalid subscription ID');
+			}
+			let lock = acquire_lock('delete_subscription', 30);
+			if (!lock.ok) return err_res('LOCKED', lock.error);
+
+			let uci = cursor();
+			if (uci.get('nikki', sid) != 'subscription') {
+				release_lock();
+				return err_res('NOT_FOUND', 'Subscription not found');
+			}
+
+			let active = uci.get('nikki', 'config', 'profile') ?? '';
+			if (active == `subscription:${sid}`) {
+				if (req.args?.fallback_profile && length(req.args.fallback_profile) > 0) {
+					uci.set('nikki', 'config', 'profile', req.args.fallback_profile);
+				} else if (req.args?.force_stop) {
+					uci.set('nikki', 'config', 'enabled', '0');
+					uci.delete('nikki', 'config', 'profile');
+					uci.commit('nikki');
+					exec_argv(['/etc/init.d/nikki', 'stop']);
+				} else {
+					release_lock();
+					return err_res('ACTIVE_PROFILE_PROTECTED', 'Cannot delete active subscription without fallback profile or stopping Nikki');
+				}
+			}
+
+			uci.delete('nikki', sid);
+			uci.commit('nikki');
+
+			let sub_file = `${NIKKI_SUBSCRIPTIONS_DIR}/${sid}.yaml`;
+			if (lstat(sub_file)?.type == 'file') unlink(sub_file);
+
+			release_lock();
+			return ok_res({ deleted: sid, revision: compute_config_revision() });
+		}
+	},
+
+	switch_profile: {
+		args: { profile: '', apply: false, idempotency_key: '' },
+		call: function(req) {
+			let profile = trim(req.args?.profile ?? '');
+			let colon = index(profile, ':');
+			if (colon < 0) return err_res('INVALID_PARAM', 'Profile must be file:<name> or subscription:<id>');
+			let ptype = substr(profile, 0, colon);
+			let pid = substr(profile, colon + 1);
+
+			if (ptype == 'file') {
+				let rp = resolve_safe_path('profile', pid, false);
+				if (!rp.ok || !rp.exists) return err_res('NOT_FOUND', 'Profile file not found');
+			} else if (ptype == 'subscription') {
+				if (!is_valid_section_id(pid) || cursor().get('nikki', pid) != 'subscription') {
+					return err_res('NOT_FOUND', 'Subscription not found');
+				}
+			} else {
+				return err_res('INVALID_PARAM', 'Invalid profile prefix');
+			}
+
+			if (req.args?.apply) {
+				return spawn_async_task('apply_config', {
+					action: 'apply',
+					changes: { named: { config: { profile: profile } } }
+				}, req.args?.idempotency_key);
+			}
+
+			let r = save_config_sync('', { named: { config: { profile: profile } } });
+			if (!r.ok) return r;
+			return ok_res({ profile: profile, revision: r.revision });
+		}
+	},
+
+	fix_controller_bind: {
+		args: { bind_addr: '', clear_tls_wildcard: false, apply: true, idempotency_key: '' },
+		call: function(req) {
+			let addr = trim(req.args?.bind_addr ?? '127.0.0.1:9090');
+			if (!match(addr, /^(127\.0\.0\.1|\[::1\]):[0-9]{1,5}$/)) {
+				return err_res('INVALID_PARAM', 'Controller fix address must be loopback (127.0.0.1:<port> or [::1]:<port>)');
+			}
+			let mixin_changes = { api_listen: addr };
+			if (req.args?.clear_tls_wildcard) {
+				mixin_changes.api_tls_listen = '';
+			}
+			if (req.args?.apply) {
+				return spawn_async_task('apply_config', {
+					action: 'apply',
+					changes: { named: { mixin: mixin_changes } }
+				}, req.args?.idempotency_key);
+			}
+			return save_config_sync('', { named: { mixin: mixin_changes } });
+		}
+	},
+
+	/* ==================== Transactions & Async Tasks ==================== */
+
+	apply_config: {
+		args: { revision: '', changes: {}, action: '', idempotency_key: '' },
+		call: function(req) {
+			let act = req.args?.action ?? 'apply';
+			if (act == 'save') {
+				return save_config_sync(req.args?.revision, req.args?.changes);
+			}
+			if (act != 'apply' && act != 'test') {
+				return err_res('INVALID_PARAM', 'Action must be save, test, or apply');
+			}
+			return spawn_async_task('apply_config', {
+				revision: req.args?.revision ?? '',
+				changes: req.args?.changes ?? {},
+				action: act
+			}, req.args?.idempotency_key);
+		}
+	},
+
+	service_action: {
+		args: { action: '', idempotency_key: '' },
+		call: function(req) {
+			let act = req.args?.action;
+			let allowed = ['start', 'stop', 'restart', 'reload', 'enable', 'disable'];
+			if (index(allowed, act) < 0) {
+				return err_res('INVALID_PARAM', `Unsupported service action: ${act}`);
+			}
+			return spawn_async_task('service_action', { action: act }, req.args?.idempotency_key);
+		}
+	},
+
+	update_subscription: {
+		args: { section_id: '', reload_if_active: true, idempotency_key: '' },
+		call: function(req) {
+			let sid = req.args?.section_id;
+			if (!is_valid_section_id(sid)) {
+				return err_res('INVALID_PARAM', 'Invalid subscription section_id');
+			}
+			if (cursor().get('nikki', sid) != 'subscription') {
+				return err_res('NOT_FOUND', 'Subscription not found');
+			}
+			return spawn_async_task('update_subscription', {
+				section_id: sid,
+				reload_if_active: req.args?.reload_if_active != false
+			}, req.args?.idempotency_key);
+		}
+	},
+
+	get_task: {
+		args: { task_id: '' },
+		call: function(req) {
+			return read_task_state(req.args?.task_id);
+		}
+	},
+
+	list_tasks: {
+		args: { limit: 0 },
+		call: function(req) {
+			return list_recent_tasks(req.args?.limit);
+		}
+	},
+
+	/* ==================== Panel Access & Settings ==================== */
+
+	get_access: {
+		call: function() {
+			return ok_res({ access: get_access_config(ubus) });
+		}
+	},
+
+	set_access: {
+		args: {
+			access_mode: '',
+			http_port: 0,
+			https_port: 0,
+			listen_interfaces: [],
+			cert: '',
+			key: '',
+			session_timeout: 0,
+			confirm_wan_risk: false,
+			generate_self_signed: false,
+			theme: '',
+			lang: ''
+		},
+		call: function(req) {
+			let caller = get_caller_session(ubus, req);
+			return set_access_config(ubus, caller, req.args ?? {});
+		}
+	}
+};
+
+return { 'nikki-dash': methods };

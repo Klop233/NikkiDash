@@ -1,0 +1,11 @@
+{
+  "request": [
+    [
+      [ "add-header", "X-Content-Type-Options", "nosniff" ],
+      [ "add-header", "X-Frame-Options", "DENY" ],
+      [ "add-header", "Referrer-Policy", "no-referrer" ],
+      [ "add-header", "Permissions-Policy", "camera=(), microphone=(), geolocation=()" ],
+      [ "add-header", "Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'" ]
+    ]
+  ]
+}

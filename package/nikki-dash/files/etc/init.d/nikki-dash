@@ -1,0 +1,170 @@
+#!/bin/sh /etc/rc.common
+
+START=60
+STOP=20
+USE_PROCD=1
+
+UHTTPD_BIN="/usr/sbin/uhttpd"
+DOCROOT="/www/nikki-dash"
+HEADERS_JSON="/usr/share/nikki-dash/headers.json"
+NETCHECK="/usr/libexec/nikki-dash/netcheck.uc"
+RUNTIME_DIR="/var/run/nikki-dash"
+ERR_FILE="$RUNTIME_DIR/service.error"
+
+log_err() {
+	mkdir -p "$RUNTIME_DIR"
+	printf '%s\n' "$1" > "$ERR_FILE"
+	logger -t nikki-dash -p daemon.err "$1"
+	echo "nikki-dash: $1" >&2
+}
+
+clear_err() {
+	mkdir -p "$RUNTIME_DIR"
+	rm -f "$ERR_FILE"
+}
+
+sync_guest_account() {
+	local access_mode="$1"
+	if [ "$access_mode" = "lan_guest" ]; then
+		if ! uci -q get rpcd.nikki_dash_guest >/dev/null 2>&1; then
+			local empty_hash
+			empty_hash="$("$UHTTPD_BIN" -m '')"
+			uci -q set rpcd.nikki_dash_guest=login
+			uci -q set rpcd.nikki_dash_guest.username='nikki-dash-guest'
+			uci -q set rpcd.nikki_dash_guest.password="$empty_hash"
+			uci -q delete rpcd.nikki_dash_guest.read 2>/dev/null || true
+			uci -q delete rpcd.nikki_dash_guest.write 2>/dev/null || true
+			uci -q add_list rpcd.nikki_dash_guest.read='nikki-dash-guest'
+			uci -q add_list rpcd.nikki_dash_guest.write='nikki-dash-guest'
+			uci -q commit rpcd
+		fi
+	else
+		if uci -q get rpcd.nikki_dash_guest >/dev/null 2>&1; then
+			uci -q delete rpcd.nikki_dash_guest
+			uci -q commit rpcd
+		fi
+	fi
+}
+
+start_service() {
+	clear_err
+	config_load nikki_dash
+
+	local enabled access_mode http_port https_port cert key max_requests max_connections script_timeout network_timeout wan_ack
+	config_get_bool enabled main enabled 1
+	[ "$enabled" = "1" ] || return 0
+
+	config_get access_mode main access_mode "lan_auth"
+	config_get http_port main http_port "18080"
+	config_get https_port main https_port "18443"
+	config_get cert main cert "/etc/nikki-dash/server.crt"
+	config_get key main key "/etc/nikki-dash/server.key"
+	config_get max_requests main max_requests "6"
+	config_get max_connections main max_connections "64"
+	config_get script_timeout main script_timeout "30"
+	config_get network_timeout main network_timeout "30"
+	config_get_bool wan_ack main wan_risk_acknowledged 0
+
+	if [ ! -x "$UHTTPD_BIN" ]; then
+		log_err "uhttpd binary not found at $UHTTPD_BIN"
+		return 1
+	fi
+
+	if [ ! -f "/usr/lib/uhttpd_ubus.so" ]; then
+		log_err "uhttpd-mod-ubus (/usr/lib/uhttpd_ubus.so) is required"
+		return 1
+	fi
+
+	# Validate access mode
+	case "$access_mode" in
+		lan_auth|lan_guest|wan_https) ;;
+		*)
+			log_err "Invalid access_mode: $access_mode (falling back refused)"
+			return 1
+			;;
+	esac
+
+	# Always enforce mutual exclusion: non-lan_guest modes revoke guest login
+	sync_guest_account "$access_mode"
+
+	local listen_http_addrs=""
+	local listen_https_addrs=""
+
+	if [ "$access_mode" = "wan_https" ]; then
+		if [ "$wan_ack" != "1" ]; then
+			log_err "WAN HTTPS mode requires wan_risk_acknowledged=1"
+			return 1
+		fi
+		if [ ! -f "/lib/libustream-ssl.so" ] && [ ! -f "/usr/lib/libustream-ssl.so" ]; then
+			log_err "WAN HTTPS mode requires libustream-ssl (e.g. libustream-mbedtls or libustream-openssl)"
+			return 1
+		fi
+		if [ ! -s "$cert" ] || [ ! -s "$key" ]; then
+			log_err "WAN HTTPS mode requires readable cert ($cert) and key ($key)"
+			return 1
+		fi
+		if ! ucode -S "$NETCHECK" check_port "$https_port" >/dev/null 2>&1; then
+			log_err "HTTPS port $https_port is already in use by another process"
+			return 1
+		fi
+		listen_https_addrs="0.0.0.0:${https_port} [::]:${https_port}"
+	else
+		if ! ucode -S "$NETCHECK" check_port "$http_port" >/dev/null 2>&1; then
+			log_err "HTTP port $http_port is already in use by another process"
+			return 1
+		fi
+		listen_http_addrs="$(ucode -S "$NETCHECK" resolve_lan "$http_port")"
+		if [ -z "$listen_http_addrs" ]; then
+			log_err "Unable to resolve any LAN/loopback listen address"
+			return 1
+		fi
+	fi
+
+	procd_open_instance nikki-dash
+	procd_set_param respawn 3600 5 5
+	procd_set_param stderr 1
+	procd_set_param command "$UHTTPD_BIN" -f
+	procd_append_param command -h "$DOCROOT"
+	procd_append_param command -r "NikkiDash"
+	procd_append_param command -I "index.html"
+	procd_append_param command -u "/ubus"
+	procd_append_param command -U "/var/run/ubus/ubus.sock"
+	procd_append_param command -t "$script_timeout"
+	procd_append_param command -T "$network_timeout"
+	procd_append_param command -k "20"
+	procd_append_param command -A "1"
+	procd_append_param command -n "$max_requests"
+	procd_append_param command -N "$max_connections"
+	# Security hardening: no symlinks outside docroot, no dir listing, NEVER -a (no_ubusauth), NEVER -X (CORS)
+	procd_append_param command -S -D
+
+	if [ -s "$HEADERS_JSON" ]; then
+		procd_append_param command -H "$HEADERS_JSON"
+	fi
+
+	for addr in $listen_http_addrs; do
+		procd_append_param command -p "$addr"
+	done
+
+	if [ -n "$listen_https_addrs" ]; then
+		procd_append_param command -C "$cert" -K "$key"
+		procd_append_param file "$cert"
+		procd_append_param file "$key"
+		for addr in $listen_https_addrs; do
+			procd_append_param command -s "$addr"
+		done
+	fi
+
+	procd_append_param file "/etc/config/nikki_dash"
+	procd_close_instance
+}
+
+reload_service() {
+	stop
+	start
+}
+
+service_triggers() {
+	procd_add_reload_trigger "nikki_dash"
+	procd_add_raw_trigger "interface.*.up" 1500 /etc/init.d/nikki-dash reload
+}

@@ -1,0 +1,133 @@
+{
+  "unauthenticated": {
+    "description": "Allow pre-login metadata check for NikkiDash only",
+    "read": {
+      "ubus": {
+        "nikki-dash": [
+          "auth_info"
+        ]
+      }
+    }
+  },
+  "nikki-dash": {
+    "description": "Full NikkiDash panel access for authenticated router users",
+    "read": {
+      "ubus": {
+        "nikki-dash": [
+          "auth_info",
+          "capabilities",
+          "get_status",
+          "get_overview_metrics",
+          "get_config",
+          "get_profiles",
+          "get_proxies",
+          "get_connections",
+          "get_rules",
+          "get_logs",
+          "get_diagnostics",
+          "list_files",
+          "read_file",
+          "list_backups",
+          "get_task",
+          "list_tasks",
+          "get_access"
+        ],
+        "session": [
+          "access",
+          "destroy"
+        ]
+      }
+    },
+    "write": {
+      "ubus": {
+        "nikki-dash": [
+          "select_proxy",
+          "test_delay",
+          "set_mode",
+          "close_connection",
+          "close_all_connections",
+          "update_provider",
+          "clear_logs",
+          "save_file",
+          "upload_begin",
+          "upload_chunk",
+          "upload_commit",
+          "restore_backup",
+          "import_profile",
+          "delete_profile",
+          "save_subscription",
+          "delete_subscription",
+          "switch_profile",
+          "fix_controller_bind",
+          "apply_config",
+          "service_action",
+          "update_subscription",
+          "set_access"
+        ],
+        "session": [
+          "destroy"
+        ]
+      }
+    }
+  },
+  "nikki-dash-guest": {
+    "description": "Restricted LAN-only passwordless session for NikkiDash (excludes WAN/access changes and all system/uci/file/exec objects)",
+    "read": {
+      "ubus": {
+        "nikki-dash": [
+          "auth_info",
+          "capabilities",
+          "get_status",
+          "get_overview_metrics",
+          "get_config",
+          "get_profiles",
+          "get_proxies",
+          "get_connections",
+          "get_rules",
+          "get_logs",
+          "get_diagnostics",
+          "list_files",
+          "read_file",
+          "list_backups",
+          "get_task",
+          "list_tasks",
+          "get_access"
+        ],
+        "session": [
+          "access",
+          "destroy"
+        ]
+      }
+    },
+    "write": {
+      "ubus": {
+        "nikki-dash": [
+          "select_proxy",
+          "test_delay",
+          "set_mode",
+          "close_connection",
+          "close_all_connections",
+          "update_provider",
+          "clear_logs",
+          "save_file",
+          "upload_begin",
+          "upload_chunk",
+          "upload_commit",
+          "restore_backup",
+          "import_profile",
+          "delete_profile",
+          "save_subscription",
+          "delete_subscription",
+          "switch_profile",
+          "fix_controller_bind",
+          "apply_config",
+          "service_action",
+          "update_subscription"
+        ],
+        "session": [
+          "destroy"
+        ]
+      }
+    }
+  }
+}

@@ -1,0 +1,72 @@
+export const zhCN = {
+  appName: 'NikkiDash',
+  appSubtitle: 'OpenWrt Nikki / Mihomo 独立控制台',
+  nav: {
+    groupRuntime: '运行面板',
+    groupConfig: '配置管理',
+    groupSystem: '系统维护',
+    overview: '总览',
+    proxies: '代理',
+    connections: '连接',
+    rules: '规则与提供者',
+    profiles: '配置与订阅',
+    settings: 'Nikki 设置',
+    yaml: '高级 YAML',
+    logs: '日志与诊断',
+    panel: '面板设置',
+    onboarding: '环境向导'
+  },
+  status: {
+    running: '运行中',
+    stopped: '已停止',
+    busy: '执行中',
+    rule: '规则',
+    global: '全局',
+    direct: '直连',
+    start: '启动',
+    stop: '停止',
+    restart: '重启',
+    reload: '重载',
+    logout: '退出登录',
+    guest: 'LAN 免登录',
+    admin: '管理员',
+    activeProfile: '当前配置',
+    noProfile: '未选择配置'
+  },
+  login: {
+    title: '登录 NikkiDash',
+    subtitle: '使用 OpenWrt 路由器系统账号登录，会话令牌仅驻留于浏览器内存。',
+    username: '用户名',
+    password: '密码',
+    submit: '登录',
+    loggingIn: '正在认证...',
+    guestButton: '以 LAN 免登录身份进入',
+    wanBanner: '当前处于 WAN HTTPS 模式：认证后的路由器管理员会话可访问标准 /ubus 接口，请确认仅限受信任管理员使用。',
+    expired: '登录会话已过期，请重新登录。',
+    failed: '用户名或密码错误，或无访问权限。'
+  },
+  common: {
+    loading: '正在加载...',
+    retry: '重试',
+    save: '保存',
+    saveApply: '保存并应用',
+    testConfig: '测试配置',
+    cancel: '取消',
+    confirm: '确认',
+    delete: '删除',
+    edit: '编辑',
+    add: '添加',
+    refresh: '刷新',
+    search: '搜索...',
+    empty: '暂无数据',
+    copied: '已复制到剪贴板',
+    download: '下载',
+    close: '关闭',
+    unmodified: '保持原样 (不覆盖)',
+    enabled: '启用',
+    disabled: '禁用',
+    unknownError: '操作失败，请查看详情'
+  }
+} as const;
+
+export type Dict = typeof zhCN;

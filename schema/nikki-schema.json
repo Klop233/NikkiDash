@@ -1,0 +1,340 @@
+{
+  "schema_version": "1.0.0",
+  "upstream": {
+    "repo": "https://github.com/nikkinikki-org/OpenWrt-nikki",
+    "tag": "v1.26.2",
+    "commit": "aaf46bf02a9ab2b5a8ab3fcaa5f84c99e56585bf",
+    "openwrt_min": "24.10",
+    "mihomo_tag": "v1.19.34"
+  },
+  "named_sections": {
+    "config": {
+      "type": "config",
+      "group": "basic",
+      "options": {
+        "init": { "kind": "bool", "default": "1", "readonly": true },
+        "enabled": { "kind": "bool", "default": "0" },
+        "profile": { "kind": "string", "optional": true },
+        "start_delay": { "kind": "uint", "default": "0", "min": 0, "max": 3600 },
+        "scheduled_restart": { "kind": "bool", "default": "0" },
+        "scheduled_restart_cron": { "kind": "cron", "default": "0 3 * * *", "depends": { "scheduled_restart": "1" } },
+        "test_profile": { "kind": "bool", "default": "1" },
+        "core_only": { "kind": "bool", "default": "0" }
+      }
+    },
+    "procd": {
+      "type": "procd",
+      "group": "procd",
+      "options": {
+        "fast_reload": { "kind": "bool", "default": "0" },
+        "rlimit_nproc_soft": { "kind": "uint", "optional": true },
+        "rlimit_nproc_hard": { "kind": "uint", "optional": true },
+        "rlimit_address_space_soft": { "kind": "uint", "optional": true },
+        "rlimit_address_space_hard": { "kind": "uint", "optional": true },
+        "rlimit_data_soft": { "kind": "uint", "optional": true },
+        "rlimit_data_hard": { "kind": "uint", "optional": true },
+        "rlimit_stack_soft": { "kind": "uint", "optional": true },
+        "rlimit_stack_hard": { "kind": "uint", "optional": true },
+        "rlimit_nofile_soft": { "kind": "uint", "default": "65536", "optional": true },
+        "rlimit_nofile_hard": { "kind": "uint", "default": "65536", "optional": true },
+        "env_go_max_procs": { "kind": "uint", "optional": true },
+        "env_go_mem_limit": { "kind": "string", "optional": true },
+        "env_safe_paths": { "kind": "colon_list", "optional": true },
+        "env_disable_loopback_detector": { "kind": "bool", "default": "0" },
+        "env_disable_quic_go_gso": { "kind": "bool", "default": "0" },
+        "env_disable_quic_go_ecn": { "kind": "bool", "default": "0" },
+        "env_skip_system_ipv6_check": { "kind": "bool", "default": "0" }
+      }
+    },
+    "core": {
+      "type": "core",
+      "group": "procd",
+      "options": {
+        "redirect_listener_name": { "kind": "string", "default": "redir-in" },
+        "tproxy_listener_name": { "kind": "string", "default": "tproxy-in" },
+        "tun_listener_name": { "kind": "string", "default": "tun-in" }
+      }
+    },
+    "mixin": {
+      "type": "mixin",
+      "group": "mixin",
+      "options": {
+        "log_level": { "kind": "enum", "optional": true, "values": ["silent", "error", "warning", "info", "debug"], "default": "warning" },
+        "mode": { "kind": "enum", "optional": true, "values": ["rule", "global", "direct"], "default": "rule" },
+        "match_process": { "kind": "enum", "optional": true, "values": ["off", "strict", "always"], "default": "off" },
+        "outbound_interface": { "kind": "interface", "optional": true },
+        "ipv6": { "kind": "tri_bool", "optional": true, "default": "1" },
+        "unify_delay": { "kind": "tri_bool", "optional": true },
+        "tcp_concurrent": { "kind": "tri_bool", "optional": true },
+        "disable_tcp_keep_alive": { "kind": "tri_bool", "optional": true },
+        "tcp_keep_alive_idle": { "kind": "uint", "optional": true },
+        "tcp_keep_alive_interval": { "kind": "uint", "optional": true },
+
+        "ui_path": { "kind": "string", "optional": true, "default": "ui" },
+        "ui_name": { "kind": "string", "optional": true },
+        "ui_url": { "kind": "url", "optional": true },
+        "api_listen": { "kind": "hostport", "optional": true, "default": "[::]:9090" },
+        "api_tls_listen": { "kind": "hostport", "optional": true },
+        "api_tls_cert": { "kind": "filepath", "optional": true },
+        "api_tls_key": { "kind": "filepath", "optional": true },
+        "api_tls_ech_key": { "kind": "string", "optional": true, "secret": true },
+        "api_secret": { "kind": "secret", "optional": true, "secret": true },
+        "selection_cache": { "kind": "tri_bool", "optional": true, "default": "1" },
+
+        "allow_lan": { "kind": "tri_bool", "optional": true, "default": "1" },
+        "http_port": { "kind": "port", "optional": true, "default": "8080" },
+        "socks_port": { "kind": "port", "optional": true, "default": "1080" },
+        "mixed_port": { "kind": "port", "optional": true, "default": "7890" },
+        "redir_port": { "kind": "port", "optional": true, "default": "7891" },
+        "tproxy_port": { "kind": "port", "optional": true, "default": "7892" },
+        "authentication": { "kind": "bool", "default": "1" },
+
+        "tun_enabled": { "kind": "tri_bool", "optional": true, "default": "1" },
+        "tun_device": { "kind": "string", "optional": true, "default": "nikki" },
+        "tun_stack": { "kind": "enum", "optional": true, "values": ["system", "gvisor", "mixed", "mips"], "default": "mixed" },
+        "tun_mtu": { "kind": "uint", "optional": true, "min": 576, "max": 65535 },
+        "tun_gso": { "kind": "tri_bool", "optional": true },
+        "tun_gso_max_size": { "kind": "uint", "optional": true, "min": 1280, "max": 65536 },
+        "tun_dns_hijack": { "kind": "bool", "default": "0" },
+        "tun_dns_hijacks": { "kind": "list_string", "optional": true, "depends": { "tun_dns_hijack": "1" } },
+
+        "dns_enabled": { "kind": "tri_bool", "optional": true, "default": "1" },
+        "dns_cache_algorithm": { "kind": "enum", "optional": true, "values": ["lru", "arc"] },
+        "dns_listen": { "kind": "hostport", "optional": true, "default": "[::]:1053" },
+        "dns_ipv6": { "kind": "tri_bool", "optional": true, "default": "1" },
+        "dns_mode": { "kind": "enum", "optional": true, "values": ["fake-ip", "redir-host"], "default": "fake-ip" },
+        "fake_ip_range": { "kind": "cidr4", "optional": true, "default": "198.18.0.1/16" },
+        "fake_ip6_range": { "kind": "cidr6", "optional": true },
+        "fake_ip_ttl": { "kind": "uint", "optional": true },
+        "fake_ip_filter": { "kind": "bool", "default": "0" },
+        "fake_ip_filters": { "kind": "list_string", "optional": true, "depends": { "fake_ip_filter": "1" } },
+        "fake_ip_filter_mode": { "kind": "enum", "optional": true, "values": ["blacklist", "whitelist", "rule"] },
+        "fake_ip_cache": { "kind": "tri_bool", "optional": true, "default": "1" },
+        "dns_respect_rules": { "kind": "tri_bool", "optional": true },
+        "dns_doh_prefer_http3": { "kind": "tri_bool", "optional": true },
+        "dns_system_hosts": { "kind": "tri_bool", "optional": true },
+        "dns_hosts": { "kind": "tri_bool", "optional": true },
+        "hosts": { "kind": "bool", "default": "0" },
+        "dns_nameserver": { "kind": "bool", "default": "0" },
+        "dns_proxy_server_nameserver_policy": { "kind": "bool", "default": "0" },
+        "dns_direct_nameserver_follow_policy": { "kind": "tri_bool", "optional": true, "default": "0" },
+        "dns_nameserver_policy": { "kind": "bool", "default": "0" },
+
+        "sniffer": { "kind": "tri_bool", "optional": true },
+        "sniffer_sniff_dns_mapping": { "kind": "tri_bool", "optional": true },
+        "sniffer_sniff_pure_ip": { "kind": "tri_bool", "optional": true },
+        "sniffer_force_domain_name": { "kind": "bool", "default": "0" },
+        "sniffer_force_domain_names": { "kind": "list_string", "optional": true, "depends": { "sniffer_force_domain_name": "1" } },
+        "sniffer_ignore_domain_name": { "kind": "bool", "default": "0" },
+        "sniffer_ignore_domain_names": { "kind": "list_string", "optional": true, "depends": { "sniffer_ignore_domain_name": "1" } },
+        "sniffer_sniff": { "kind": "bool", "default": "0" },
+
+        "rule_provider": { "kind": "bool", "default": "0" },
+        "rule": { "kind": "bool", "default": "0" },
+
+        "geoip_format": { "kind": "enum", "optional": true, "values": ["dat", "mmdb"] },
+        "geodata_loader": { "kind": "enum", "optional": true, "values": ["standard", "memconservative"] },
+        "geosite_url": { "kind": "url", "optional": true },
+        "geoip_mmdb_url": { "kind": "url", "optional": true },
+        "geoip_dat_url": { "kind": "url", "optional": true },
+        "geoip_asn_url": { "kind": "url", "optional": true },
+        "geox_auto_update": { "kind": "tri_bool", "optional": true },
+        "geox_update_interval": { "kind": "uint", "optional": true },
+
+        "mixin_file_content": { "kind": "bool", "default": "0" }
+      }
+    },
+    "proxy": {
+      "type": "proxy",
+      "group": "proxy",
+      "options": {
+        "enabled": { "kind": "bool", "default": "1" },
+        "tcp_mode": { "kind": "enum", "optional": true, "values": ["redirect", "tproxy", "tun"], "default": "redirect" },
+        "udp_mode": { "kind": "enum", "optional": true, "values": ["tproxy", "tun"], "default": "tun" },
+        "ipv4_dns_hijack": { "kind": "bool", "default": "1" },
+        "ipv6_dns_hijack": { "kind": "bool", "default": "1" },
+        "ipv4_proxy": { "kind": "bool", "default": "1" },
+        "ipv6_proxy": { "kind": "bool", "default": "1" },
+        "fake_ip_ping_hijack": { "kind": "bool", "default": "1" },
+        "router_proxy": { "kind": "bool", "default": "1" },
+        "lan_proxy": { "kind": "bool", "default": "1" },
+        "lan_inbound_interface": { "kind": "list_interface", "optional": true },
+        "bypass_china_mainland_ip": { "kind": "bool", "default": "0" },
+        "bypass_china_mainland_ip6": { "kind": "bool", "default": "0" },
+        "proxy_tcp_dport": { "kind": "port_spec", "default": "0-65535" },
+        "proxy_udp_dport": { "kind": "port_spec", "default": "0-65535" },
+        "bypass_dscp": { "kind": "list_dscp", "optional": true },
+        "bypass_fwmark": { "kind": "list_string", "optional": true },
+        "reserved_ip": { "kind": "list_cidr4", "optional": true },
+        "reserved_ip6": { "kind": "list_cidr6", "optional": true },
+        "tun_timeout": { "kind": "uint", "default": "30", "min": 1, "max": 600 },
+        "tun_interval": { "kind": "uint", "default": "1", "min": 1, "max": 60 }
+      }
+    },
+    "routing": {
+      "type": "routing",
+      "group": "routing",
+      "options": {
+        "tproxy_fw_mark": { "kind": "hex", "default": "0x80" },
+        "tproxy_fw_mask": { "kind": "hex", "default": "0xFF" },
+        "tun_fw_mark": { "kind": "hex", "default": "0x81" },
+        "tun_fw_mask": { "kind": "hex", "default": "0xFF" },
+        "tproxy_rule_pref": { "kind": "uint", "default": "1024", "min": 1, "max": 32766 },
+        "tun_rule_pref": { "kind": "uint", "default": "1025", "min": 1, "max": 32766 },
+        "tproxy_route_table": { "kind": "uint", "default": "80", "min": 1, "max": 65535 },
+        "tun_route_table": { "kind": "uint", "default": "81", "min": 1, "max": 65535 },
+        "cgroup_id": { "kind": "hex", "default": "0x12061206" },
+        "cgroup_name": { "kind": "string", "default": "nikki" },
+        "dummy_device": { "kind": "string", "default": "nikki-dummy" }
+      }
+    },
+    "log": {
+      "type": "log",
+      "group": "log",
+      "options": {
+        "clear_at_stop": { "kind": "bool", "default": "1" },
+        "scheduled_clear": { "kind": "bool", "default": "1" },
+        "scheduled_clear_cron": { "kind": "cron", "default": "*/5 * * * *", "depends": { "scheduled_clear": "1" } },
+        "scheduled_clear_size_limit": { "kind": "uint", "default": "1", "min": 1, "max": 10240, "depends": { "scheduled_clear": "1" } },
+        "scheduled_clear_size_limit_unit": { "kind": "enum", "values": ["B", "KB", "MB", "GB"], "default": "MB", "depends": { "scheduled_clear": "1" } }
+      }
+    }
+  },
+  "repeatable_sections": {
+    "subscription": {
+      "sortable": true,
+      "addremove": true,
+      "options": {
+        "name": { "kind": "string", "required": true },
+        "url": { "kind": "url", "required": true },
+        "info_url": { "kind": "url", "optional": true },
+        "user_agent": { "kind": "string", "default": "clash", "suggestions": ["clash", "clash.meta", "mihomo"] },
+        "prefer": { "kind": "enum", "values": ["remote", "local"], "default": "remote" },
+        "expire": { "kind": "string", "readonly": true },
+        "upload": { "kind": "string", "readonly": true },
+        "download": { "kind": "string", "readonly": true },
+        "total": { "kind": "string", "readonly": true },
+        "used": { "kind": "string", "readonly": true },
+        "avaliable": { "kind": "string", "readonly": true },
+        "update": { "kind": "string", "readonly": true },
+        "success": { "kind": "string", "readonly": true }
+      }
+    },
+    "authentication": {
+      "sortable": true,
+      "addremove": true,
+      "parent_toggle": { "section": "mixin", "option": "authentication" },
+      "options": {
+        "enabled": { "kind": "bool", "default": "1" },
+        "username": { "kind": "string", "required": true },
+        "password": { "kind": "secret", "secret": true, "optional": true }
+      }
+    },
+    "hosts": {
+      "sortable": true,
+      "addremove": true,
+      "parent_toggle": { "section": "mixin", "option": "hosts" },
+      "options": {
+        "enabled": { "kind": "bool", "default": "0" },
+        "domain_name": { "kind": "string", "required": true },
+        "ip": { "kind": "list_string", "optional": true }
+      }
+    },
+    "nameserver": {
+      "sortable": true,
+      "addremove": true,
+      "parent_toggle": { "section": "mixin", "option": "dns_nameserver" },
+      "options": {
+        "enabled": { "kind": "bool", "default": "1" },
+        "type": { "kind": "enum", "values": ["default-nameserver", "proxy-server-nameserver", "direct-nameserver", "nameserver", "fallback"], "default": "nameserver" },
+        "nameserver": { "kind": "list_string", "optional": true }
+      }
+    },
+    "proxy_server_nameserver_policy": {
+      "sortable": true,
+      "addremove": true,
+      "parent_toggle": { "section": "mixin", "option": "dns_proxy_server_nameserver_policy" },
+      "options": {
+        "enabled": { "kind": "bool", "default": "1" },
+        "matcher": { "kind": "string", "required": true },
+        "nameserver": { "kind": "list_string", "optional": true }
+      }
+    },
+    "nameserver_policy": {
+      "sortable": true,
+      "addremove": true,
+      "parent_toggle": { "section": "mixin", "option": "dns_nameserver_policy" },
+      "options": {
+        "enabled": { "kind": "bool", "default": "1" },
+        "matcher": { "kind": "string", "required": true },
+        "nameserver": { "kind": "list_string", "optional": true }
+      }
+    },
+    "sniff": {
+      "sortable": false,
+      "addremove": false,
+      "parent_toggle": { "section": "mixin", "option": "sniffer_sniff" },
+      "options": {
+        "enabled": { "kind": "bool", "default": "1" },
+        "protocol": { "kind": "enum", "values": ["HTTP", "TLS", "QUIC"], "readonly": true },
+        "port": { "kind": "list_portrange", "optional": true },
+        "overwrite_destination": { "kind": "bool", "default": "1" }
+      }
+    },
+    "rule_provider": {
+      "sortable": true,
+      "addremove": true,
+      "parent_toggle": { "section": "mixin", "option": "rule_provider" },
+      "options": {
+        "enabled": { "kind": "bool", "default": "1" },
+        "name": { "kind": "string", "required": true },
+        "type": { "kind": "enum", "values": ["http", "file"], "default": "http" },
+        "url": { "kind": "url", "optional": true, "depends": { "type": "http" } },
+        "node": { "kind": "string", "default": "DIRECT", "optional": true, "depends": { "type": "http" } },
+        "file_size_limit": { "kind": "uint", "default": "0", "optional": true, "depends": { "type": "http" } },
+        "file_path": { "kind": "filepath", "optional": true, "depends": { "type": "file" } },
+        "file_format": { "kind": "enum", "values": ["yaml", "mrs", "text"], "default": "yaml" },
+        "behavior": { "kind": "enum", "values": ["classical", "domain", "ipcidr"], "default": "classical" },
+        "update_interval": { "kind": "uint", "default": "0", "optional": true, "depends": { "type": "http" } }
+      }
+    },
+    "rule": {
+      "sortable": true,
+      "addremove": true,
+      "parent_toggle": { "section": "mixin", "option": "rule" },
+      "options": {
+        "enabled": { "kind": "bool", "default": "1" },
+        "type": { "kind": "string", "required": true, "suggestions": ["RULE-SET", "DOMAIN", "DOMAIN-SUFFIX", "DOMAIN-WILDCARD", "DOMAIN-KEYWORD", "DOMAIN-REGEX", "IP-CIDR", "IP-CIDR6", "DST-PORT", "PROCESS-NAME", "GEOSITE", "GEOIP", "MATCH"] },
+        "matcher": { "kind": "string", "optional": true },
+        "node": { "kind": "string", "default": "GLOBAL", "suggestions": ["GLOBAL", "DIRECT", "REJECT", "REJECT-DROP"] },
+        "no_resolve": { "kind": "bool", "default": "0" }
+      }
+    },
+    "router_access_control": {
+      "sortable": true,
+      "addremove": true,
+      "parent_toggle": { "section": "proxy", "option": "router_proxy" },
+      "options": {
+        "enabled": { "kind": "bool", "default": "1" },
+        "user": { "kind": "list_user", "optional": true },
+        "group": { "kind": "list_group", "optional": true },
+        "cgroup": { "kind": "list_cgroup", "optional": true },
+        "dns": { "kind": "bool", "default": "1" },
+        "proxy": { "kind": "bool", "default": "1" }
+      }
+    },
+    "lan_access_control": {
+      "sortable": true,
+      "addremove": true,
+      "parent_toggle": { "section": "proxy", "option": "lan_proxy" },
+      "options": {
+        "enabled": { "kind": "bool", "default": "1" },
+        "ip": { "kind": "list_cidr4", "optional": true },
+        "ip6": { "kind": "list_cidr6", "optional": true },
+        "mac": { "kind": "list_mac", "optional": true },
+        "dns": { "kind": "bool", "default": "1" },
+        "proxy": { "kind": "bool", "default": "1" }
+      }
+    }
+  }
+}
