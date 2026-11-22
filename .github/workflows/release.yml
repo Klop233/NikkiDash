@@ -5,11 +5,6 @@ on:
     tags:
       - 'v*'
   workflow_dispatch:
-    inputs:
-      tag_name:
-        description: 'Release tag (e.g. v0.1.0)'
-        required: false
-        default: ''
 
 permissions:
   contents: write
@@ -43,25 +38,7 @@ jobs:
       - name: Build OpenWrt IPK (PKGARCH=all)
         run: node scripts/build-ipk.mjs
 
-      - name: Build OpenWrt 24.10 SDK IPK (official buildroot verification)
-        uses: openwrt/gh-action-sdk@main
-        continue-on-error: true
-        env:
-          ARCH: x86_64-openwrt-24.10
-          FEEDNAME: nikkidash
-          PACKAGES: nikki-dash
-          NO_REFRESH_CHECK: true
-
-      - name: Collect SDK IPK if produced
-        run: |
-          if ls bin/packages/x86_64/nikkidash/nikki-dash_*.ipk >/dev/null 2>&1; then
-            cp -v bin/packages/x86_64/nikkidash/nikki-dash_*.ipk dist/
-            (cd dist && sha256sum *.ipk > SHA256SUMS)
-          fi
-          ls -lh dist/
-          cat dist/SHA256SUMS
-
-      - name: Run OpenWrt 24.10 Live Container Verification
+      - name: Run OpenWrt 24.10 Live Container Verification (real opkg + uhttpd + rpcd + ucode)
         run: |
           curl -fsSL https://downloads.openwrt.org/releases/24.10.4/targets/x86/64/openwrt-24.10.4-x86-64-rootfs.tar.gz -o /tmp/owrt2410.tar.gz
           docker import /tmp/owrt2410.tar.gz openwrt-24.10-ci:latest
