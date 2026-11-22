@@ -27,12 +27,29 @@ import {
 } from '/usr/share/nikki-dash/lib/tx.uc';
 import { get_access_config, set_access_config } from '/usr/share/nikki-dash/lib/access.uc';
 import {
-	get_capabilities, get_system_identifiers, detect_conflicts,
+	get_capabilities, get_versions, get_system_identifiers, detect_conflicts,
 	read_logs, clear_logs, build_diagnostics
 } from '/usr/share/nikki-dash/lib/diagnostics.uc';
 import { detect_platform } from '/usr/share/nikki-dash/lib/core.uc';
 
 const ubus = connect();
+let _cached_core_ver = '';
+let _cached_core_at = 0;
+
+function get_installed_core_version_cached() {
+	if (length(_cached_core_ver) > 0 && (time() - _cached_core_at) < 120) {
+		return _cached_core_ver;
+	}
+	if (!cmd_exists('mihomo')) {
+		_cached_core_ver = '';
+		_cached_core_at = time();
+		return '';
+	}
+	let v = get_versions();
+	_cached_core_ver = v.core ?? '';
+	_cached_core_at = time();
+	return _cached_core_ver;
+}
 
 function get_nikki_service_state() {
 	let svc = ubus.call('service', 'list', { name: 'nikki' });
@@ -94,7 +111,7 @@ const methods = {
 		call: function() {
 			let uci = cursor();
 			let svc = get_nikki_service_state();
-			let ctrl = resolve_controller();
+			let ctrl = resolve_controller(svc.running);
 			let ctrl_pub = controller_public_info(ctrl);
 
 			let ctrl_reachable = false;
@@ -112,6 +129,9 @@ const methods = {
 				} else {
 					ctrl_error = vr.error;
 				}
+			}
+			if (length(core_version) == 0) {
+				core_version = get_installed_core_version_cached();
 			}
 
 			let recent = list_recent_tasks(5);
@@ -167,7 +187,7 @@ const methods = {
 			let cfgs = api_get_configs(ctrl);
 			let proxies = api_get_proxies();
 
-			let list = conns.data?.connections ?? [];
+			let list = type(conns.data?.connections) == 'array' ? conns.data.connections : [];
 			let groups = [];
 			if (proxies.ok && type(proxies.data?.proxies) == 'object') {
 				let pmap = proxies.data.proxies;
@@ -321,7 +341,7 @@ const methods = {
 				upload_total: r.data?.uploadTotal ?? 0,
 				download_total: r.data?.downloadTotal ?? 0,
 				memory: r.data?.memory ?? 0,
-				connections: r.data?.connections ?? []
+				connections: type(r.data?.connections) == 'array' ? r.data.connections : []
 			});
 		}
 	},

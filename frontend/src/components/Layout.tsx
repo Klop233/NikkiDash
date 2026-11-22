@@ -14,7 +14,7 @@ import {
   IconSpark
 } from './Icons';
 import { useI18n } from '../i18n';
-import type { ProxyMode, SessionState, StatusResponse } from '../api/types';
+import type { LangCode, ProxyMode, SessionState, StatusResponse } from '../api/types';
 
 export type PageId =
   | 'overview'
@@ -33,6 +33,11 @@ export function Layout(props: {
   onNavigate: (p: PageId) => void;
   session: SessionState;
   status: StatusResponse | null;
+  profileDisplayName?: string;
+  resolvedTheme?: 'dark' | 'light';
+  onToggleTheme?: () => void;
+  lang?: LangCode;
+  onToggleLang?: () => void;
   onToggleService: (nextRunning: boolean) => void;
   onModeChange: (mode: ProxyMode) => void;
   onLogout: () => void;
@@ -84,10 +89,11 @@ export function Layout(props: {
 
   const running = props.status?.running ?? false;
   const activeTaskCount = props.status?.active_tasks?.length ?? 0;
+  const isBusy = props.busyAction || activeTaskCount > 0;
   const currentMode = props.status?.mode ?? 'rule';
-  const profileLabel = props.status?.profile
-    ? props.status.profile.replace(/^(file|subscription):/, '')
-    : t.status.noProfile;
+  const profileLabel =
+    props.profileDisplayName ||
+    (props.status?.profile ? props.status.profile.replace(/^(file|subscription):/, '') : t.status.noProfile);
 
   const navigate = (p: PageId) => {
     props.onNavigate(p);
@@ -103,7 +109,7 @@ export function Layout(props: {
           <div class="brand-mark">ND</div>
           <div class="brand-meta">
             <span class="brand-title">{t.appName}</span>
-            <span class="brand-sub">v{props.status?.dash_version || '0.1.0'}</span>
+            <span class="brand-sub">v{props.status?.dash_version || '0.3.0'}</span>
           </div>
         </div>
 
@@ -132,6 +138,31 @@ export function Layout(props: {
         </nav>
 
         <div class="sidebar-footer">
+          <div class="row-between" style={{ gap: '6px' }}>
+            {props.onToggleTheme && (
+              <button
+                type="button"
+                class="btn btn-sm"
+                style={{ flex: 1 }}
+                onClick={props.onToggleTheme}
+                title="切换明暗主题"
+              >
+                {props.resolvedTheme === 'light' ? '☀ 浅色' : '☾ 深色'}
+              </button>
+            )}
+            {props.onToggleLang && (
+              <button
+                type="button"
+                class="btn btn-sm"
+                style={{ flex: 1 }}
+                onClick={props.onToggleLang}
+                title="Switch Language"
+              >
+                {props.lang === 'en-US' ? 'EN / 中' : '中 / EN'}
+              </button>
+            )}
+          </div>
+
           <div class="session-pill">
             <div>
               <div style={{ fontWeight: 600 }}>{props.session.username}</div>
@@ -164,14 +195,20 @@ export function Layout(props: {
               <IconMenu />
             </button>
 
-            <span class={`badge ${activeTaskCount > 0 ? 'badge-amber' : running ? 'badge-green' : 'badge-red'}`}>
-              <span class="dot" />
-              {activeTaskCount > 0 ? t.status.busy : running ? t.status.running : t.status.stopped}
+            <span class={`badge ${isBusy ? 'badge-amber' : running ? 'badge-green' : 'badge-red'}`}>
+              {isBusy ? <span class="spinner" style={{ width: '10px', height: '10px' }} /> : <span class="dot" />}
+              {isBusy ? t.status.busy : running ? t.status.running : t.status.stopped}
             </span>
 
-            <span class="badge" title={`${t.status.activeProfile}: ${props.status?.profile || '-'}`}>
+            <button
+              type="button"
+              class="badge"
+              style={{ border: 0, cursor: 'pointer' }}
+              title={`${t.status.activeProfile}: ${props.status?.profile || '-'}（点击管理）`}
+              onClick={() => navigate('profiles')}
+            >
               {profileLabel}
-            </span>
+            </button>
           </div>
 
           <div class="topbar-right">
@@ -181,7 +218,7 @@ export function Layout(props: {
                   key={m}
                   type="button"
                   class={currentMode === m ? 'active' : ''}
-                  disabled={!running || props.busyAction}
+                  disabled={!running || isBusy}
                   onClick={() => props.onModeChange(m)}
                 >
                   {t.status[m]}
@@ -189,16 +226,26 @@ export function Layout(props: {
               ))}
             </div>
 
-            <label class="switch" title={running ? t.status.stop : t.status.start}>
+            <label
+              class="switch"
+              title={running ? t.status.stop : t.status.start}
+              style={{ opacity: isBusy ? 0.6 : 1 }}
+            >
               <input
                 type="checkbox"
                 checked={running}
-                disabled={props.busyAction}
-                onChange={(e) => props.onToggleService((e.currentTarget as HTMLInputElement).checked)}
+                disabled={isBusy}
+                onChange={(e) => {
+                  const target = e.currentTarget as HTMLInputElement;
+                  const desired = target.checked;
+                  // Keep checkbox synced with live running state until action succeeds
+                  target.checked = running;
+                  props.onToggleService(desired);
+                }}
               />
               <span class="switch-track" />
               <span style={{ fontSize: '12.5px', fontWeight: 600 }}>
-                {running ? t.status.running : t.status.stopped}
+                {isBusy ? t.status.busy : running ? t.status.running : t.status.stopped}
               </span>
             </label>
           </div>

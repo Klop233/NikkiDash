@@ -2,10 +2,11 @@ import { useCallback, useEffect, useState } from 'preact/hooks';
 import { nikkiApi } from '../api/nikki';
 import { StateView } from '../components/StateView';
 import { ConfirmModal } from '../components/ConfirmModal';
-import { formatBytes } from '../utils/format';
+import { formatBytes, parseFormattedSize } from '../utils/format';
 import type { AsyncTask, ProfilesResponse, SubscriptionItem } from '../api/types';
 
 export function ProfilesPage(props: {
+  refreshSeq?: number;
   onRefreshStatus: () => void;
   onTrackTask: (task: AsyncTask) => void;
   onEditFile: (category: string, name: string) => void;
@@ -15,18 +16,15 @@ export function ProfilesPage(props: {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Subscription editor modal
   const [subModal, setSubModal] = useState<Partial<SubscriptionItem> | null>(null);
   const [subSaving, setSubSaving] = useState(false);
 
-  // Import file modal
   const [importOpen, setImportOpen] = useState(false);
   const [importName, setImportName] = useState('profile.yaml');
   const [importContent, setImportContent] = useState('');
   const [importActivate, setImportActivate] = useState(false);
   const [importing, setImporting] = useState(false);
 
-  // Delete confirmation (with active profile protection)
   const [deleteTarget, setDeleteTarget] = useState<{ kind: 'file' | 'subscription'; id: string; label: string; active: boolean } | null>(null);
   const [fallbackProfile, setFallbackProfile] = useState('');
   const [forceStop, setForceStop] = useState(false);
@@ -48,10 +46,39 @@ export function ProfilesPage(props: {
     void load();
   }, [load]);
 
+  useEffect(() => {
+    if ((props.refreshSeq ?? 0) > 0) {
+      void load();
+    }
+  }, [props.refreshSeq, load]);
+
+  useEffect(() => {
+    if (!subModal && !importOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (subModal && !subSaving) setSubModal(null);
+        if (importOpen && !importing) setImportOpen(false);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [subModal, subSaving, importOpen, importing]);
+
   const allChoices = [
     ...(data?.subscriptions || []).map((s) => ({ value: `subscription:${s.id}`, label: `订阅: ${s.name}` })),
     ...(data?.files || []).map((f) => ({ value: `file:${f.name}`, label: `文件: ${f.name}` }))
   ];
+
+  const activeFriendly = (() => {
+    const raw = data?.active_profile || '';
+    if (!raw) return '未选择';
+    if (raw.startsWith('subscription:')) {
+      const id = raw.slice('subscription:'.length);
+      const sub = data?.subscriptions?.find((s) => s.id === id);
+      return sub ? `订阅: ${sub.name}` : raw;
+    }
+    return raw.replace(/^file:/, '文件: ');
+  })();
 
   const handleSaveSub = async (e: Event) => {
     e.preventDefault();
@@ -161,12 +188,14 @@ export function ProfilesPage(props: {
   if (loading && !data) return <StateView kind="loading" title="正在加载配置与订阅..." />;
   if (error && !data) return <StateView kind="error" title="无法读取配置列表" message={error} actionLabel="重试" onAction={load} />;
 
+  const deleteDisabled = Boolean(deleteTarget?.active && !fallbackProfile && !forceStop);
+
   return (
     <div>
       <div class="page-header">
         <div>
           <h2 class="page-title">配置与订阅管理</h2>
-          <p class="page-desc">管理远程订阅与本地 YAML 配置文件，当前活动配置：{data?.active_profile || '未选择'}</p>
+          <p class="page-desc">管理远程订阅与本地 YAML 配置文件 · 当前活动配置：{activeFriendly}</p>
         </div>
         <div class="row">
           <button
@@ -185,7 +214,7 @@ export function ProfilesPage(props: {
       <div class="card">
         <div class="card-header">
           <h3 class="card-title">远程订阅 ({data?.subscriptions.length ?? 0})</h3>
-          <button class="btn btn-sm" onClick={load}>
+          <button class="btn btn-sm" onClick={() => void load()}>
             刷新
           </button>
         </div>
@@ -193,59 +222,78 @@ export function ProfilesPage(props: {
           <div style={{ color: 'var(--text-muted)', padding: '14px 0' }}>暂无订阅，点击右上角「新增订阅」添加。</div>
         ) : (
           <div class="grid-2">
-            {data!.subscriptions.map((sub) => (
-              <div
-                key={sub.id}
-                class="card"
-                style={{
-                  margin: 0,
-                  borderColor: sub.active ? 'var(--accent)' : 'var(--border)',
-                  background: sub.active ? 'var(--accent-soft)' : 'var(--surface-2)'
-                }}
-              >
-                <div class="row-between">
-                  <div class="row">
-                    <strong>{sub.name}</strong>
-                    {sub.active && <span class="badge badge-green">当前活动</span>}
-                    {sub.success === '0' && <span class="badge badge-red">上次更新失败</span>}
+            {data!.subscriptions.map((sub) => {
+              const usedBytes = parseFormattedSize(sub.used);
+              const totalBytes = parseFormattedSize(sub.total);
+              const pct =
+                usedBytes !== null && totalBytes !== null && totalBytes > 0
+                  ? Math.min(100, Math.round((usedBytes / totalBytes) * 100))
+                  : null;
+              return (
+                <div
+                  key={sub.id}
+                  class="card"
+                  style={{
+                    margin: 0,
+                    borderColor: sub.active ? 'var(--accent)' : 'var(--border)',
+                    background: sub.active ? 'var(--accent-soft)' : 'var(--surface-2)'
+                  }}
+                >
+                  <div class="row-between">
+                    <div class="row">
+                      <strong>{sub.name}</strong>
+                      {sub.active && <span class="badge badge-green">当前活动</span>}
+                      {sub.success === '0' && <span class="badge badge-red">上次更新失败</span>}
+                    </div>
+                    <span class="badge">{sub.prefer === 'remote' ? '优先远程' : '优先本地'}</span>
                   </div>
-                  <span class="badge">{sub.prefer === 'remote' ? '优先远程' : '优先本地'}</span>
-                </div>
 
-                <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '8px' }}>
-                  <div>已用: {sub.used || '-'} / 总量: {sub.total || '-'} · 剩余: {sub.avaliable || '-'}</div>
-                  <div>到期: {sub.expire || '-'} · 更新: {sub.update || '未拉取'}</div>
-                  <div>本地缓存: {sub.file_exists ? formatBytes(sub.file_size) : '尚无缓存文件'}</div>
-                </div>
+                  <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '8px' }}>
+                    <div>
+                      已用: {sub.used || '-'} / 总量: {sub.total || '-'} · 剩余: {sub.avaliable || '-'}
+                    </div>
+                    {pct !== null && (
+                      <div style={{ margin: '6px 0' }}>
+                        <div class="progress-bar">
+                          <div class="progress-fill" style={{ width: `${pct}%` }} />
+                        </div>
+                      </div>
+                    )}
+                    <div>
+                      到期: {sub.expire || '-'} · 更新: {sub.update || '未拉取'}
+                    </div>
+                    <div>本地缓存: {sub.file_exists ? formatBytes(sub.file_size) : '尚无缓存文件'}</div>
+                  </div>
 
-                <div class="row" style={{ marginTop: '12px' }}>
-                  {!sub.active && (
-                    <button class="btn btn-sm btn-primary" onClick={() => handleSwitch(`subscription:${sub.id}`, true)}>
-                      切换并应用
+                  <div class="row" style={{ marginTop: '12px' }}>
+                    {!sub.active && (
+                      <button class="btn btn-sm btn-primary" onClick={() => void handleSwitch(`subscription:${sub.id}`, true)}>
+                        切换并应用
+                      </button>
+                    )}
+                    <button class="btn btn-sm btn-success" onClick={() => void handleUpdateSub(sub.id)}>
+                      立即更新
                     </button>
-                  )}
-                  <button class="btn btn-sm btn-success" onClick={() => handleUpdateSub(sub.id)}>
-                    立即更新
-                  </button>
-                  <button class="btn btn-sm" onClick={() => setSubModal({ ...sub })}>
-                    编辑
-                  </button>
-                  {sub.file_exists && (
-                    <button class="btn btn-sm" onClick={() => props.onEditFile('subscription', `${sub.id}.yaml`)}>
-                      查看 YAML
+                    <button class="btn btn-sm" onClick={() => setSubModal({ ...sub })}>
+                      编辑
                     </button>
-                  )}
-                  <button
-                    class="btn btn-sm btn-danger"
-                    onClick={() =>
-                      setDeleteTarget({ kind: 'subscription', id: sub.id, label: sub.name, active: sub.active })
-                    }
-                  >
-                    删除
-                  </button>
+                    {sub.file_exists && (
+                      <button class="btn btn-sm" onClick={() => props.onEditFile('subscription', `${sub.id}.yaml`)}>
+                        查看 YAML
+                      </button>
+                    )}
+                    <button
+                      class="btn btn-sm btn-danger"
+                      onClick={() =>
+                        setDeleteTarget({ kind: 'subscription', id: sub.id, label: sub.name, active: sub.active })
+                      }
+                    >
+                      删除
+                    </button>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
@@ -279,7 +327,7 @@ export function ProfilesPage(props: {
                     <td>
                       <div class="row">
                         {!f.active && (
-                          <button class="btn btn-sm btn-primary" onClick={() => handleSwitch(`file:${f.name}`, true)}>
+                          <button class="btn btn-sm btn-primary" onClick={() => void handleSwitch(`file:${f.name}`, true)}>
                             启用并应用
                           </button>
                         )}
@@ -304,7 +352,14 @@ export function ProfilesPage(props: {
 
       {/* Add/Edit Subscription Modal */}
       {subModal && (
-        <div class="modal-overlay" role="dialog" aria-modal="true">
+        <div
+          class="modal-overlay"
+          role="dialog"
+          aria-modal="true"
+          onClick={(e) => {
+            if (e.target === e.currentTarget && !subSaving) setSubModal(null);
+          }}
+        >
           <div class="modal-card" style={{ maxWidth: '520px' }}>
             <h3 style={{ margin: '0 0 12px' }}>{subModal.id ? '编辑订阅' : '新增订阅'}</h3>
             <form class="stack" onSubmit={handleSaveSub}>
@@ -385,7 +440,14 @@ export function ProfilesPage(props: {
 
       {/* Import Profile Modal */}
       {importOpen && (
-        <div class="modal-overlay" role="dialog" aria-modal="true">
+        <div
+          class="modal-overlay"
+          role="dialog"
+          aria-modal="true"
+          onClick={(e) => {
+            if (e.target === e.currentTarget && !importing) setImportOpen(false);
+          }}
+        >
           <div class="modal-card" style={{ maxWidth: '580px' }}>
             <h3 style={{ margin: '0 0 12px' }}>导入本地 YAML 配置</h3>
             <form class="stack" onSubmit={handleImportSubmit}>
@@ -432,17 +494,17 @@ export function ProfilesPage(props: {
         </div>
       )}
 
-      {/* Active-safe Delete Confirm Modal */}
       <ConfirmModal
         open={deleteTarget !== null}
         title={`删除${deleteTarget?.kind === 'subscription' ? '订阅' : '配置'}：${deleteTarget?.label || ''}`}
         message={
           deleteTarget?.active
-            ? '这是当前正在使用的活动配置！删除前必须选择一个备用配置切换，或选择同时停止 Nikki。'
+            ? '这是当前正在使用的活动配置！删除前必须选择一个备用配置切换，或勾选停止 Nikki。'
             : '删除后不可恢复，确定继续？'
         }
         danger
         busy={deleting}
+        confirmDisabled={deleteDisabled}
         confirmLabel="确认删除"
         onConfirm={handleConfirmDelete}
         onCancel={() => {
@@ -458,7 +520,11 @@ export function ProfilesPage(props: {
               <select
                 class="select"
                 value={fallbackProfile}
-                onChange={(e) => setFallbackProfile((e.currentTarget as HTMLSelectElement).value)}
+                onChange={(e) => {
+                  const v = (e.currentTarget as HTMLSelectElement).value;
+                  setFallbackProfile(v);
+                  if (v) setForceStop(false);
+                }}
               >
                 <option value="">-- 不切换（需勾选下方停止服务） --</option>
                 {allChoices
@@ -474,7 +540,11 @@ export function ProfilesPage(props: {
               <input
                 type="checkbox"
                 checked={forceStop}
-                onChange={(e) => setForceStop((e.currentTarget as HTMLInputElement).checked)}
+                onChange={(e) => {
+                  const chk = (e.currentTarget as HTMLInputElement).checked;
+                  setForceStop(chk);
+                  if (chk) setFallbackProfile('');
+                }}
               />
               <span>停止 Nikki 并清除当前活动配置</span>
             </label>

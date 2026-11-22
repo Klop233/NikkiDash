@@ -25,6 +25,40 @@ export class RpcError extends Error {
 let memorySid = '';
 let reqCounter = 1;
 let onAuthExpired: (() => void) | null = null;
+let sessionProbeInFlight: Promise<boolean> | null = null;
+
+async function verifySessionStillAlive(sid: string): Promise<boolean> {
+  if (!sid) return false;
+  if (sessionProbeInFlight) return sessionProbeInFlight;
+  sessionProbeInFlight = (async () => {
+    try {
+      const resp = await fetch('/ubus/call/session', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${sid}`
+        },
+        credentials: 'omit',
+        cache: 'no-store',
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: reqCounter++,
+          method: 'access',
+          params: { object: 'nikki-dash', function: 'get_status' }
+        })
+      });
+      if (!resp.ok) return false;
+      const json = await resp.json();
+      if (json?.error) return false;
+      return json?.result?.access === true;
+    } catch {
+      return true; // Network flake != definitely expired
+    } finally {
+      sessionProbeInFlight = null;
+    }
+  })();
+  return sessionProbeInFlight;
+}
 
 export function setSessionSid(sid: string): void {
   memorySid = sid;
@@ -110,10 +144,17 @@ export async function ubusCall<T = Record<string, unknown>>(
           if (code === -32001) {
             clearSessionSid();
             onAuthExpired?.();
-            throw new RpcError('SESSION_EXPIRED', 'Session expired; please log in again', code);
+            throw new RpcError('SESSION_EXPIRED', '登录会话已过期，请重新登录', code);
           }
-          // Check whether the session itself expired vs missing ACL permission
-          throw new RpcError('ACCESS_DENIED', msg, code);
+          if (code === -32002 && memorySid) {
+            const alive = await verifySessionStillAlive(memorySid);
+            if (!alive) {
+              clearSessionSid();
+              onAuthExpired?.();
+              throw new RpcError('SESSION_EXPIRED', '登录会话已过期，请重新登录', code);
+            }
+          }
+          throw new RpcError('ACCESS_DENIED', '权限不足或当前身份不允许此操作', code);
         }
         throw new RpcError('ACCESS_DENIED', msg, code);
       }

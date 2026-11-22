@@ -5,7 +5,7 @@ import {
 	access, chmod, realpath
 } from 'fs';
 
-export const DASH_VERSION = '0.2.0';
+export const DASH_VERSION = '0.3.0';
 export const SCHEMA_PATH = '/usr/share/nikki-dash/schema.json';
 export const RUNTIME_DIR = '/var/run/nikki-dash';
 export const TASKS_DIR = '/var/run/nikki-dash/tasks';

@@ -196,7 +196,7 @@ export const nikkiApi = {
       await ubusCall<{ ok: boolean; files: Record<string, ManagedFileEntry[]> }>('nikki-dash', 'list_files', {})
     ),
 
-  readFile: async (category: string, name = '') =>
+  readFile: async (category: string, name = '', offset = 0, maxBytes = 512 * 1024) =>
     unwrap(
       await ubusCall<{
         ok: boolean;
@@ -205,10 +205,35 @@ export const nikkiApi = {
         content: string;
         size: number;
         mtime?: number;
+        offset: number;
         eof: boolean;
         revision: string;
-      }>('nikki-dash', 'read_file', { category, name })
+      }>('nikki-dash', 'read_file', { category, name, offset, max_bytes: maxBytes }, { timeoutMs: 25000 })
     ),
+
+  /**
+   * Reads a complete managed text file across multiple chunks when larger than 512 KiB
+   * so edits never truncate large profiles or run/config.yaml.
+   */
+  readFileAll: async (category: string, name = '') => {
+    const chunkSize = 512 * 1024;
+    const first = await nikkiApi.readFile(category, name, 0, chunkSize);
+    if (!first.exists || first.eof) return first;
+
+    let content = first.content || '';
+    let offset = content.length;
+    let eof: boolean = first.eof;
+    let guard = 0;
+    while (!eof && guard < 12) {
+      guard++;
+      const next = await nikkiApi.readFile(category, name, offset, chunkSize);
+      if (!next.content || next.content.length === 0) break;
+      content += next.content;
+      offset += next.content.length;
+      eof = next.eof;
+    }
+    return { ...first, content, eof: true };
+  },
 
   /**
    * Automatically uses chunked upload when content exceeds 32 KiB so it always fits

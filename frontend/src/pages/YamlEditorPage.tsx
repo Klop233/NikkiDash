@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'preact/hooks';
+import { useCallback, useEffect, useRef, useState } from 'preact/hooks';
 import yaml from 'js-yaml';
 import { nikkiApi } from '../api/nikki';
 import { StateView } from '../components/StateView';
@@ -10,32 +10,62 @@ export function YamlEditorPage(props: {
   initialTarget?: { category: string; name: string } | null;
   notify: (kind: 'success' | 'error' | 'info', msg: string) => void;
 }) {
+  const notifyRef = useRef(props.notify);
+  notifyRef.current = props.notify;
+
   const [catalog, setCatalog] = useState<Record<string, ManagedFileEntry[]>>({});
   const [selected, setSelected] = useState<{ category: string; name: string }>(
     props.initialTarget || { category: 'mixin', name: 'mixin.yaml' }
   );
+  const [pendingTarget, setPendingTarget] = useState<{ category: string; name: string } | null>(null);
   const [content, setContent] = useState('');
+  const [savedContent, setSavedContent] = useState('');
   const [revision, setRevision] = useState('');
   const [writable, setWritable] = useState(true);
+  const [isBinary, setIsBinary] = useState(false);
+  const [fileSize, setFileSize] = useState(0);
   const [backups, setBackups] = useState<Array<{ id: string; size: number; mtime: number }>>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [clientYamlErr, setClientYamlErr] = useState<string | null>(null);
   const [restoreId, setRestoreId] = useState<string | null>(null);
 
+  const dirty = writable && !isBinary && content !== savedContent;
+
   const loadCatalog = useCallback(async () => {
-    const res = await nikkiApi.listFiles();
-    setCatalog(res.files || {});
+    try {
+      const res = await nikkiApi.listFiles();
+      setCatalog(res.files || {});
+    } catch (err) {
+      notifyRef.current('error', `加载文件目录失败: ${(err as Error).message}`);
+    }
   }, []);
 
   const loadFile = useCallback(async (cat: string, name: string) => {
     setLoading(true);
+    setLoadError(null);
     setClientYamlErr(null);
+    setIsBinary(false);
+
+    if (/\.(mrs|dat|mmdb|db|bin|gz|zip|tar|xz)$/i.test(name)) {
+      setIsBinary(true);
+      setWritable(false);
+      setContent('');
+      setSavedContent('');
+      setBackups([]);
+      setLoading(false);
+      return;
+    }
+
     try {
-      const f = await nikkiApi.readFile(cat, cat === 'mixin' || cat === 'run_config' ? '' : name);
+      const targetName = cat === 'mixin' || cat === 'run_config' ? '' : name;
+      const f = await nikkiApi.readFileAll(cat, targetName);
       setContent(f.content || '');
+      setSavedContent(f.content || '');
       setRevision(f.revision || '');
       setWritable(f.writable);
+      setFileSize(f.size || 0);
       if (f.writable) {
         const b = await nikkiApi.listBackups(cat, cat === 'mixin' ? '' : name);
         setBackups(b.backups || []);
@@ -43,11 +73,21 @@ export function YamlEditorPage(props: {
         setBackups([]);
       }
     } catch (err) {
-      props.notify('error', (err as Error).message);
+      const msg = (err as Error).message || '读取文件失败';
+      if (msg.includes('Binary') || msg.includes('BINARY_FILE')) {
+        setIsBinary(true);
+        setWritable(false);
+        setContent('');
+        setSavedContent('');
+        setBackups([]);
+      } else {
+        setLoadError(msg);
+        notifyRef.current('error', msg);
+      }
     } finally {
       setLoading(false);
     }
-  }, [props]);
+  }, []);
 
   useEffect(() => {
     void loadCatalog();
@@ -61,27 +101,30 @@ export function YamlEditorPage(props: {
 
   useEffect(() => {
     void loadFile(selected.category, selected.name);
-  }, [selected, loadFile]);
+  }, [selected.category, selected.name, loadFile]);
 
-  const validateClientYaml = (text: string): boolean => {
-    if (selected.category === 'rule_provider' && !/\.(ya?ml)$/i.test(selected.name)) {
-      setClientYamlErr(null);
-      return true;
-    }
-    try {
-      yaml.load(text);
-      setClientYamlErr(null);
-      return true;
-    } catch (err) {
-      setClientYamlErr((err as Error).message);
-      return false;
-    }
-  };
+  const validateClientYaml = useCallback(
+    (text: string): boolean => {
+      if (selected.category === 'rule_provider' && !/\.(ya?ml)$/i.test(selected.name)) {
+        setClientYamlErr(null);
+        return true;
+      }
+      try {
+        yaml.load(text);
+        setClientYamlErr(null);
+        return true;
+      } catch (err) {
+        setClientYamlErr((err as Error).message);
+        return false;
+      }
+    },
+    [selected.category, selected.name]
+  );
 
-  const handleSave = async () => {
-    if (!writable) return;
+  const handleSave = useCallback(async () => {
+    if (!writable || isBinary || saving) return;
     if (!validateClientYaml(content)) {
-      props.notify('error', '前端 YAML 语法检查未通过，请修复后再保存');
+      notifyRef.current('error', '前端 YAML 语法检查未通过，请修复后再保存');
       return;
     }
     setSaving(true);
@@ -95,26 +138,63 @@ export function YamlEditorPage(props: {
         selected.category === 'profile'
       );
       setRevision(res.revision);
-      props.notify('success', `文件已校验并原子保存（${formatBytes(res.size)}）`);
+      setSavedContent(content);
+      setFileSize(res.size);
+      notifyRef.current('success', `文件已校验并原子保存（${formatBytes(res.size)}）`);
       const b = await nikkiApi.listBackups(selected.category, targetName);
       setBackups(b.backups || []);
+      void loadCatalog();
     } catch (err) {
-      props.notify('error', (err as Error).message);
+      notifyRef.current('error', (err as Error).message);
     } finally {
       setSaving(false);
     }
-  };
+  }, [writable, isBinary, saving, validateClientYaml, content, selected.category, selected.name, revision, loadCatalog]);
+
+  // Ctrl+S / Cmd+S keyboard save shortcut
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+        e.preventDefault();
+        if (writable && !isBinary && !saving) void handleSave();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [writable, isBinary, saving, handleSave]);
 
   const handleRestore = async () => {
     if (!restoreId) return;
     try {
       const targetName = selected.category === 'mixin' ? '' : selected.name;
       await nikkiApi.restoreBackup(selected.category, targetName, restoreId);
-      props.notify('success', `已恢复备份 ${restoreId}`);
+      notifyRef.current('success', `已恢复备份 ${restoreId}`);
       setRestoreId(null);
       await loadFile(selected.category, selected.name);
     } catch (err) {
-      props.notify('error', (err as Error).message);
+      notifyRef.current('error', (err as Error).message);
+    }
+  };
+
+  const requestSwitchFile = (next: { category: string; name: string }) => {
+    if (dirty) {
+      setPendingTarget(next);
+    } else {
+      setSelected(next);
+    }
+  };
+
+  const handleTextareaKeyDown = (e: KeyboardEvent) => {
+    if (e.key === 'Tab' && writable) {
+      e.preventDefault();
+      const ta = e.currentTarget as HTMLTextAreaElement;
+      const start = ta.selectionStart;
+      const end = ta.selectionEnd;
+      const next = content.slice(0, start) + '  ' + content.slice(end);
+      setContent(next);
+      requestAnimationFrame(() => {
+        ta.selectionStart = ta.selectionEnd = start + 2;
+      });
     }
   };
 
@@ -127,19 +207,30 @@ export function YamlEditorPage(props: {
     { group: '代理 Provider', category: 'proxy_provider', items: catalog.proxy_provider || [] }
   ];
 
+  const lineCount = content ? content.split('\n').length : 0;
+
   return (
     <div>
       <div class="page-header">
         <div>
           <h2 class="page-title">高级 YAML 编辑器</h2>
-          <p class="page-desc">编辑 mixin.yaml、本地 Profile 与 Provider 文件（服务端二次 yq 校验 + 自动备份 + 分片保存）</p>
+          <p class="page-desc">
+            编辑 mixin.yaml、本地 Profile 与文本 Provider 文件（支持大文件完整读写、Ctrl+S 保存、服务端 yq 二次校验与自动备份）
+          </p>
         </div>
         <div class="row">
-          <button class="btn" onClick={() => validateClientYaml(content)}>
+          {dirty && <span class="badge badge-amber">有未保存更改</span>}
+          <button
+            class="btn"
+            disabled={isBinary || loading}
+            onClick={() => {
+              if (validateClientYaml(content)) notifyRef.current('success', '前端 YAML 语法检查通过');
+            }}
+          >
             本地语法检查
           </button>
-          <button class="btn btn-primary" disabled={!writable || saving} onClick={handleSave}>
-            {saving ? '校验保存中...' : '保存文件'}
+          <button class="btn btn-primary" disabled={!writable || isBinary || saving || loading} onClick={() => void handleSave()}>
+            {saving ? '校验保存中...' : '保存文件 (Ctrl+S)'}
           </button>
         </div>
       </div>
@@ -173,40 +264,66 @@ export function YamlEditorPage(props: {
         <div class="row-between" style={{ marginBottom: '12px' }}>
           <select
             class="select"
-            style={{ maxWidth: '380px' }}
+            style={{ maxWidth: '420px' }}
             value={`${selected.category}::${selected.name}`}
             onChange={(e) => {
               const [category, name] = (e.currentTarget as HTMLSelectElement).value.split('::');
-              setSelected({ category, name });
+              requestSwitchFile({ category, name });
             }}
           >
-            {options.map((g) => (
-              <optgroup key={g.group} label={g.group}>
-                {g.items.map((item) => (
-                  <option key={`${g.category}::${item.name}`} value={`${g.category}::${item.name}`}>
-                    {item.name} ({formatBytes(item.size)}){item.writable ? '' : ' [只读]'}
-                  </option>
-                ))}
-              </optgroup>
-            ))}
+            {options.map((g) =>
+              g.items.length > 0 ? (
+                <optgroup key={g.group} label={g.group}>
+                  {g.items.map((item) => (
+                    <option key={`${g.category}::${item.name}`} value={`${g.category}::${item.name}`}>
+                      {item.name} ({formatBytes(item.size)})
+                      {item.binary ? ' [二进制]' : item.writable ? '' : ' [只读]'}
+                    </option>
+                  ))}
+                </optgroup>
+              ) : null
+            )}
           </select>
 
           <div class="row">
-            <span class={`badge ${writable ? 'badge-green' : 'badge-amber'}`}>{writable ? '可写' : '只读'}</span>
-            <button class="btn btn-sm" onClick={() => loadFile(selected.category, selected.name)}>
+            {!isBinary && !loading && (
+              <span class="badge mono">
+                {lineCount} 行 · {formatBytes(fileSize || new TextEncoder().encode(content).length)}
+              </span>
+            )}
+            <span class={`badge ${isBinary ? 'badge-purple' : writable ? 'badge-green' : 'badge-amber'}`}>
+              {isBinary ? '二进制文件' : writable ? '可写' : '只读'}
+            </span>
+            <button class="btn btn-sm" onClick={() => void loadFile(selected.category, selected.name)} disabled={loading}>
               重新读取
             </button>
           </div>
         </div>
 
         {loading ? (
-          <StateView kind="loading" title="正在读取文件内容..." />
+          <StateView kind="loading" title="正在完整读取文件内容..." />
+        ) : isBinary ? (
+          <StateView
+            kind="empty"
+            title={`${selected.name} 是二进制规则集 / 数据库文件`}
+            message="Mihomo 的 .mrs / .dat / .mmdb 二进制文件不支持以纯文本编辑；若需更新请前往「规则与提供者」点击更新。"
+          />
+        ) : loadError ? (
+          <StateView
+            kind="error"
+            title="读取文件失败"
+            message={loadError}
+            actionLabel="重试"
+            onAction={() => void loadFile(selected.category, selected.name)}
+          />
         ) : (
           <textarea
             class="textarea"
-            style={{ minHeight: '440px' }}
+            style={{ minHeight: '480px', tabSize: 2 }}
+            spellcheck={false}
             readOnly={!writable}
             value={content}
+            onKeyDown={handleTextareaKeyDown}
             onInput={(e) => {
               const v = (e.currentTarget as HTMLTextAreaElement).value;
               setContent(v);
@@ -216,7 +333,29 @@ export function YamlEditorPage(props: {
         )}
       </div>
 
-      {writable && backups.length > 0 && (
+      {dirty && (
+        <div class="sticky-savebar">
+          <div style={{ fontSize: '13px', fontWeight: 600 }}>
+            当前文件 <span class="mono">{selected.name}</span> 有未保存更改
+          </div>
+          <div class="row">
+            <button
+              class="btn btn-sm"
+              onClick={() => {
+                setContent(savedContent);
+                setClientYamlErr(null);
+              }}
+            >
+              还原修改
+            </button>
+            <button class="btn btn-sm btn-primary" disabled={saving} onClick={() => void handleSave()}>
+              {saving ? '保存中...' : '校验并保存'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {writable && !isBinary && backups.length > 0 && (
         <div class="card">
           <div class="card-header">
             <h3 class="card-title">历史备份（最多保留 5 份）</h3>
@@ -255,6 +394,19 @@ export function YamlEditorPage(props: {
         confirmLabel="确认恢复"
         onConfirm={handleRestore}
         onCancel={() => setRestoreId(null)}
+      />
+
+      <ConfirmModal
+        open={pendingTarget !== null}
+        title="放弃当前未保存的 YAML 修改？"
+        message={`切换到 ${pendingTarget?.name || ''} 将丢弃对 ${selected.name} 的未保存修改。`}
+        danger
+        confirmLabel="放弃并切换"
+        onConfirm={() => {
+          if (pendingTarget) setSelected(pendingTarget);
+          setPendingTarget(null);
+        }}
+        onCancel={() => setPendingTarget(null)}
       />
     </div>
   );

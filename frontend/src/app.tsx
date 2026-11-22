@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'preact/hooks';
+import { useCallback, useEffect, useMemo, useState } from 'preact/hooks';
 import {
   fetchAuthInfo,
   loginSession,
@@ -24,6 +24,7 @@ import { LogsDiagnosticsPage } from './pages/LogsDiagnosticsPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { YamlEditorPage } from './pages/YamlEditorPage';
 import { PanelSettingsPage } from './pages/PanelSettingsPage';
+import { formatTaskKind, formatTaskStatus, formatTaskStep } from './utils/format';
 import type {
   AsyncTask,
   AuthInfo,
@@ -36,6 +37,27 @@ import type {
 } from './api/types';
 
 let toastSeq = 1;
+const LANG_STORAGE_KEY = 'nikki_dash_lang';
+const VALID_PAGES: PageId[] = [
+  'overview', 'proxies', 'connections', 'rules', 'profiles',
+  'settings', 'yaml', 'logs', 'panel', 'onboarding'
+];
+
+function readHashPage(): PageId {
+  if (typeof window === 'undefined') return 'overview';
+  const raw = window.location.hash.replace(/^#/, '') as PageId;
+  return VALID_PAGES.includes(raw) ? raw : 'overview';
+}
+
+function readStoredLang(): LangCode | null {
+  try {
+    const v = typeof localStorage !== 'undefined' ? localStorage.getItem(LANG_STORAGE_KEY) : null;
+    if (v === 'zh-CN' || v === 'en-US') return v;
+  } catch {
+    // ignore
+  }
+  return null;
+}
 
 export function App() {
   const [authInfo, setAuthInfo] = useState<AuthInfo | null>(null);
@@ -44,19 +66,43 @@ export function App() {
   const [session, setSession] = useState<SessionState | null>(null);
   const [expiredNotice, setExpiredNotice] = useState(false);
 
-  const [page, setPage] = useState<PageId>('overview');
+  const [page, setPageState] = useState<PageId>(readHashPage);
   const [yamlTarget, setYamlTarget] = useState<{ category: string; name: string } | null>(null);
-  const [lang, setLang] = useState<LangCode>('zh-CN');
-  const { theme, setTheme } = useTheme('system');
+  const [lang, setLangState] = useState<LangCode>(() => readStoredLang() || 'zh-CN');
+  const { theme, resolvedTheme, setTheme, toggleTheme } = useTheme('system');
 
   const [capabilities, setCapabilities] = useState<CapabilitiesResponse | null>(null);
   const [status, setStatus] = useState<StatusResponse | null>(null);
   const [statusError, setStatusError] = useState<string | null>(null);
   const [profiles, setProfiles] = useState<ProfilesResponse | null>(null);
   const [activeTask, setActiveTask] = useState<AsyncTask | null>(null);
+  const [taskCompletedSeq, setTaskCompletedSeq] = useState(0);
   const [stopConfirm, setStopConfirm] = useState(false);
   const [busyAction, setBusyAction] = useState(false);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
+
+  const setPage = useCallback((next: PageId) => {
+    setPageState(next);
+    if (typeof window !== 'undefined' && window.location.hash !== `#${next}`) {
+      window.location.hash = next;
+    }
+  }, []);
+
+  const setLang = useCallback((next: LangCode) => {
+    setLangState(next);
+    try {
+      if (typeof localStorage !== 'undefined') localStorage.setItem(LANG_STORAGE_KEY, next);
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const onHash = () => setPageState(readHashPage());
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
+  }, []);
 
   const notify = useCallback((kind: 'success' | 'error' | 'info', message: string) => {
     const id = toastSeq++;
@@ -104,8 +150,14 @@ export function App() {
     try {
       const info = await fetchAuthInfo();
       setAuthInfo(info);
-      if (info.default_theme) setTheme(info.default_theme);
-      if (info.default_lang) setLang(info.default_lang);
+      // Only apply server default theme/lang if user hasn't picked a local preference yet
+      try {
+        if (info.default_theme && !localStorage.getItem('nikki_dash_theme')) setTheme(info.default_theme);
+        if (info.default_lang && !localStorage.getItem(LANG_STORAGE_KEY)) setLangState(info.default_lang);
+      } catch {
+        if (info.default_theme) setTheme(info.default_theme);
+        if (info.default_lang) setLangState(info.default_lang);
+      }
       if (info.lan_guest_enabled) {
         try {
           await performGuestLogin();
@@ -137,7 +189,6 @@ export function App() {
       const runningTask = (tasks.tasks || []).find((t) => t.status === 'queued' || t.status === 'running');
       if (runningTask) setActiveTask(runningTask);
 
-      // If Nikki is missing or has zero profiles/subscriptions, guide user to onboarding
       if (
         !caps.dependencies.nikki_installed ||
         !caps.dependencies.mihomo_installed ||
@@ -149,7 +200,7 @@ export function App() {
       if (err instanceof RpcError && err.code === 'SESSION_EXPIRED') return;
       notify('error', `初始化检查失败: ${(err as Error).message}`);
     }
-  }, [session, notify]);
+  }, [session, notify, setPage]);
 
   useEffect(() => {
     if (session) {
@@ -175,7 +226,8 @@ export function App() {
     { intervalMs: 4000, enabled: session !== null }
   );
 
-  // Poll active async task until terminal state
+  const taskInFlight = activeTask !== null && (activeTask.status === 'queued' || activeTask.status === 'running');
+
   const pollTask = useCallback(
     (signal: AbortSignal) => nikkiApi.getTask(activeTask!.id, { signal }),
     [activeTask]
@@ -187,12 +239,18 @@ export function App() {
       const t = res.task;
       setActiveTask(t);
       if (t.status !== 'queued' && t.status !== 'running') {
-        if (t.status === 'succeeded') notify('success', t.message || '任务已完成');
-        else if (t.status === 'rolled_back') notify('error', `任务失败并已回滚: ${t.error || t.message}`);
-        else if (t.status === 'unknown') notify('info', t.message || '任务超时，状态未明，请核对实时状态');
-        else notify('error', `任务失败: ${t.error || t.message}`);
+        if (t.status === 'succeeded') notify('success', `${formatTaskKind(t.kind)}：${t.message || '已完成'}`);
+        else if (t.status === 'rolled_back') notify('error', `${formatTaskKind(t.kind)}失败并已回滚：${t.error || t.message}`);
+        else if (t.status === 'unknown') notify('info', t.message || '任务超时，请核对实时状态');
+        else notify('error', `${formatTaskKind(t.kind)}失败：${t.error || t.message}`);
+        setTaskCompletedSeq((n) => n + 1);
         void refreshStatus();
-        if (t.kind === 'install_core' || t.kind === 'remove_luci_nikki') {
+        if (
+          t.kind === 'install_core' ||
+          t.kind === 'remove_luci_nikki' ||
+          t.kind === 'update_subscription' ||
+          t.kind === 'apply_config'
+        ) {
           void loadCapabilitiesAndProfiles();
         }
       }
@@ -200,7 +258,8 @@ export function App() {
     () => {},
     {
       intervalMs: 1200,
-      enabled: session !== null && activeTask !== null && (activeTask.status === 'queued' || activeTask.status === 'running')
+      enabled: session !== null && taskInFlight,
+      refreshKey: activeTask?.id
     }
   );
 
@@ -209,7 +268,8 @@ export function App() {
     try {
       const res = await nikkiApi.serviceAction(act, `svc_${act}_${Math.floor(Date.now() / 3000)}`);
       setActiveTask(res.task);
-      notify('info', `已提交 Nikki ${act} 任务...`);
+      const labels: Record<string, string> = { start: '启动', stop: '停止', restart: '重启', reload: '重载' };
+      notify('info', `已提交 Nikki ${labels[act] || act}任务...`);
     } catch (err) {
       notify('error', (err as Error).message);
     } finally {
@@ -230,7 +290,8 @@ export function App() {
     try {
       await nikkiApi.setMode(mode, false);
       setStatus((prev) => (prev ? { ...prev, mode } : prev));
-      notify('success', `代理模式已切换为 ${mode}`);
+      const modeNames: Record<ProxyMode, string> = { rule: '规则模式', global: '全局模式', direct: '直连模式' };
+      notify('success', `已切换为${modeNames[mode]}`);
     } catch (err) {
       notify('error', (err as Error).message);
     } finally {
@@ -251,6 +312,17 @@ export function App() {
     setSession(null);
     setExpiredNotice(false);
   };
+
+  const friendlyProfileName = useMemo(() => {
+    const raw = status?.profile || '';
+    if (!raw) return '';
+    if (raw.startsWith('subscription:')) {
+      const id = raw.slice('subscription:'.length);
+      const sub = profiles?.subscriptions?.find((s) => s.id === id);
+      return sub ? `订阅: ${sub.name}` : raw;
+    }
+    return raw.replace(/^file:/, '');
+  }, [status?.profile, profiles?.subscriptions]);
 
   const i18nVal = { lang, setLang, t: getDict(lang) };
 
@@ -296,11 +368,16 @@ export function App() {
         onNavigate={setPage}
         session={session}
         status={status}
+        profileDisplayName={friendlyProfileName}
+        resolvedTheme={resolvedTheme}
+        onToggleTheme={toggleTheme}
+        lang={lang}
+        onToggleLang={() => setLang(lang === 'zh-CN' ? 'en-US' : 'zh-CN')}
         onToggleService={handleToggleService}
         onModeChange={handleModeChange}
         onLogout={handleLogout}
         onSwitchToAdminLogin={handleSwitchToAdminLogin}
-        busyAction={busyAction}
+        busyAction={busyAction || taskInFlight}
       >
         {activeTask && (
           <div
@@ -314,23 +391,26 @@ export function App() {
                     : 'alert-info'
             }`}
           >
-            <div>
-              <strong>
-                后台任务 ({activeTask.kind}) — {activeTask.status}
-              </strong>
-              <div>{activeTask.message}</div>
+            <div style={{ flex: 1 }}>
+              <div class="row" style={{ gap: '8px' }}>
+                {taskInFlight && <span class="spinner" />}
+                <strong>
+                  {formatTaskKind(activeTask.kind)} — {formatTaskStatus(activeTask.status)}
+                </strong>
+              </div>
+              {activeTask.message && <div style={{ marginTop: '3px' }}>{activeTask.message}</div>}
               {activeTask.error && (
-                <div class="mono" style={{ fontSize: '12px', marginTop: '4px' }}>
+                <div class="mono" style={{ fontSize: '12px', marginTop: '4px', wordBreak: 'break-word' }}>
                   {activeTask.error}
                 </div>
               )}
               {activeTask.steps.length > 0 && (
-                <div style={{ fontSize: '11.5px', opacity: 0.85, marginTop: '4px' }}>
-                  步骤: {activeTask.steps.map((s) => s.name).join(' → ')}
+                <div style={{ fontSize: '11.5px', opacity: 0.88, marginTop: '6px' }}>
+                  进度：{activeTask.steps.map((s) => formatTaskStep(s.name)).join(' → ')}
                 </div>
               )}
             </div>
-            {activeTask.status !== 'queued' && activeTask.status !== 'running' && (
+            {!taskInFlight && (
               <button class="btn btn-sm btn-ghost" onClick={() => setActiveTask(null)}>
                 关闭
               </button>
@@ -343,6 +423,8 @@ export function App() {
             capabilities={capabilities}
             status={status}
             statusError={statusError}
+            profileDisplayName={friendlyProfileName}
+            busyAction={busyAction || taskInFlight}
             onRefreshStatus={refreshStatus}
             onToggleService={handleToggleService}
             onServiceAction={(a) => void runServiceAction(a)}
@@ -361,6 +443,7 @@ export function App() {
 
         {page === 'profiles' && (
           <ProfilesPage
+            refreshSeq={taskCompletedSeq}
             onRefreshStatus={refreshStatus}
             onTrackTask={setActiveTask}
             onEditFile={(category, name) => {
@@ -372,7 +455,12 @@ export function App() {
         )}
 
         {page === 'settings' && (
-          <SettingsPage onTrackTask={setActiveTask} onRefreshStatus={refreshStatus} notify={notify} />
+          <SettingsPage
+            refreshSeq={taskCompletedSeq}
+            onTrackTask={setActiveTask}
+            onRefreshStatus={refreshStatus}
+            notify={notify}
+          />
         )}
 
         {page === 'yaml' && <YamlEditorPage initialTarget={yamlTarget} notify={notify} />}

@@ -4,6 +4,7 @@ export interface PollingOptions {
   intervalMs: number;
   enabled: boolean;
   immediate?: boolean;
+  refreshKey?: string | number;
 }
 
 /**
@@ -86,7 +87,7 @@ export function usePolling<T>(
         document.removeEventListener('visibilitychange', handleVis);
       }
     };
-  }, [options.enabled, options.intervalMs, options.immediate, runOnce]);
+  }, [options.enabled, options.intervalMs, options.immediate, options.refreshKey, runOnce]);
 
   return { refresh: runOnce };
 }

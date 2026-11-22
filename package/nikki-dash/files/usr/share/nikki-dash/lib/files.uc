@@ -18,6 +18,11 @@ const CATEGORIES = {
 	proxy_provider: { dir: NIKKI_PROXY_PROVIDERS_DIR, fixed_path: null, writable: true, yaml: true }
 };
 
+function is_binary_filename(name) {
+	if (type(name) != 'string') return false;
+	return match(lc(name), /\.(mrs|dat|mmdb|db|bin|gz|zip|tar|xz)$/) != null;
+}
+
 export function resolve_safe_path(category, name, for_write) {
 	let spec = CATEGORIES[category];
 	if (!spec) {
@@ -60,7 +65,8 @@ export function resolve_safe_path(category, name, for_write) {
 	return ok_res({
 		path: full_path,
 		key: key_name,
-		writable: spec.writable,
+		writable: spec.writable && !is_binary_filename(name),
+		binary: is_binary_filename(name),
 		yaml: spec.yaml,
 		exists: lst != null,
 		size: lst?.size ?? 0,
@@ -215,10 +221,12 @@ export function list_catalog() {
 			if (!is_valid_basename(e)) continue;
 			let st = lstat(`${dir}/${e}`);
 			if (!st || st.type != 'file') continue;
+			let bin = is_binary_filename(e);
 			push(out[cat], {
 				name: e,
 				category: cat,
-				writable: true,
+				writable: !bin,
+				binary: bin,
 				exists: true,
 				size: st.size,
 				mtime: st.mtime
@@ -232,6 +240,12 @@ export function list_catalog() {
 export function read_managed_file(category, name, offset, max_bytes) {
 	let r = resolve_safe_path(category, name, false);
 	if (!r.ok) return r;
+	if (r.binary) {
+		return err_res('BINARY_FILE', 'Binary provider/database files (.mrs/.dat/.mmdb) cannot be edited as text', {
+			binary: true,
+			size: r.size
+		});
+	}
 	if (!r.exists) {
 		return ok_res({
 			exists: false,

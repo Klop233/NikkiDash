@@ -56,6 +56,27 @@ describe('ubus HTTP client security & resilience', () => {
     expect(onExp).toHaveBeenCalledTimes(1);
   });
 
+  it('probes session.access on -32002 and triggers expired handler when SID is actually dead', async () => {
+    setSessionSid('bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb');
+    const onExp = vi.fn();
+    setAuthExpiredHandler(onExp);
+
+    globalThis.fetch = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ jsonrpc: '2.0', id: 1, error: { code: -32002, message: 'Access denied' } })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ jsonrpc: '2.0', id: 2, error: { code: -32002, message: 'Access denied' } })
+      }) as unknown as typeof fetch;
+
+    await expect(ubusCall('nikki-dash', 'get_status')).rejects.toMatchObject({ code: 'SESSION_EXPIRED' });
+    expect(getSessionSid()).toBe('');
+    expect(onExp).toHaveBeenCalledTimes(1);
+  });
+
   it('splits large UTF-8 YAML into base64 chunks under uhttpd 64 KiB POST limit', () => {
     const bigYaml = 'proxies:\n' + '  - name: "节点-🚀"\n'.repeat(3000);
     const chunks = splitUtf8Chunks(bigYaml, 28 * 1024);

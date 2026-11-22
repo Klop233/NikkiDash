@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'preact/hooks';
+import { useCallback, useEffect, useRef, useState } from 'preact/hooks';
 import { nikkiApi } from '../api/nikki';
 import { usePolling } from '../hooks/usePolling';
 import { TrafficChart } from '../components/TrafficChart';
@@ -11,11 +11,13 @@ export function OverviewPage(props: {
   capabilities?: CapabilitiesResponse | null;
   status: StatusResponse | null;
   statusError: string | null;
+  profileDisplayName?: string;
+  busyAction?: boolean;
   onRefreshStatus: () => void;
   onToggleService: (next: boolean) => void;
   onServiceAction: (act: 'restart' | 'reload') => void;
   onModeChange: (mode: ProxyMode) => void;
-  onNavigate: (page: 'proxies' | 'profiles' | 'logs' | 'onboarding') => void;
+  onNavigate: (page: 'proxies' | 'profiles' | 'logs' | 'onboarding' | 'settings') => void;
   onTrackTask: (task: AsyncTask) => void;
   notify: (kind: 'success' | 'error' | 'info', msg: string) => void;
 }) {
@@ -30,6 +32,19 @@ export function OverviewPage(props: {
   const [fixing, setFixing] = useState(false);
 
   const running = props.status?.running ?? false;
+
+  // Reset rate history cleanly whenever Nikki starts or stops
+  useEffect(() => {
+    prevRef.current = null;
+    if (!running) {
+      setUpRate(0);
+      setDownRate(0);
+      setUpHist([0]);
+      setDownHist([0]);
+      setMetrics(null);
+      setMetricsErr(null);
+    }
+  }, [running]);
 
   const fetchMetrics = useCallback((signal: AbortSignal) => nikkiApi.getOverviewMetrics({ signal, timeoutMs: 8000 }), []);
 
@@ -78,6 +93,8 @@ export function OverviewPage(props: {
   }
 
   const st = props.status;
+  const coreVer = st.core_version || props.capabilities?.versions.core || '-';
+  const profLabel = props.profileDisplayName || (st.profile ? st.profile.replace(/^(file|subscription):/, '') : '未选择');
 
   return (
     <div>
@@ -87,17 +104,26 @@ export function OverviewPage(props: {
           <p class="page-desc">实时监控 Nikki 透明代理状态、Mihomo 核心流量与策略组</p>
         </div>
         <div class="row">
-          <button class="btn" onClick={() => props.onServiceAction('reload')} disabled={!st.running}>
+          <button class="btn" onClick={() => props.onServiceAction('reload')} disabled={!st.running || props.busyAction}>
             重载配置
           </button>
-          <button class="btn" onClick={() => props.onServiceAction('restart')}>
+          <button class="btn" onClick={() => props.onServiceAction('restart')} disabled={props.busyAction}>
             重启 Nikki
           </button>
           <button
             class={`btn ${st.running ? 'btn-danger' : 'btn-success'}`}
+            disabled={props.busyAction}
             onClick={() => props.onToggleService(!st.running)}
           >
-            {st.running ? '停止代理' : '启动代理'}
+            {props.busyAction ? (
+              <>
+                <span class="spinner" style={{ width: '12px', height: '12px' }} /> 处理中...
+              </>
+            ) : st.running ? (
+              '停止代理'
+            ) : (
+              '启动代理'
+            )}
           </button>
         </div>
       </div>
@@ -119,7 +145,7 @@ export function OverviewPage(props: {
         <div class="alert alert-warning">
           <div>
             <strong>控制器暴露提醒：</strong>
-            Mihomo 外部控制器当前监听在 <span class="mono">{st.controller.listen_addr}</span>（非回环地址），局域网设备可直接触达 9090 端口。建议改为仅监听 <span class="mono">127.0.0.1:9090</span>，由 NikkiDash 后端代理访问。
+            Mihomo 外部控制器当前配置为 <span class="mono">{st.controller.listen_addr}</span>（非回环地址），局域网设备可直接触达控制端口。建议改为仅监听 <span class="mono">127.0.0.1:9090</span>，由 NikkiDash 后端代理访问。
           </div>
           <button class="btn btn-sm btn-primary" onClick={() => setFixModal(true)}>
             一键修复为 127.0.0.1
@@ -175,17 +201,17 @@ export function OverviewPage(props: {
           <div class="metric-label">活跃连接 / 内存</div>
           <div class="metric-value">{st.running ? metrics?.connection_count ?? 0 : '—'}</div>
           <div class="metric-sub">
-            {st.running ? `内存占用 ${formatBytes(metrics?.memory ?? 0)}` : `核心模式: ${st.core_only ? '仅核心' : '透明代理'}`}
+            {st.running ? `内存占用 ${formatBytes(metrics?.memory ?? 0)}` : `模式: ${st.core_only ? '仅核心' : '透明代理'}`}
           </div>
         </div>
 
         <div class="card">
           <div class="metric-label">活动配置与版本</div>
           <div class="metric-value" style={{ fontSize: '16px', wordBreak: 'break-all' }}>
-            {st.profile ? st.profile.replace(/^(file|subscription):/, '') : '未选择'}
+            {profLabel}
           </div>
           <div class="metric-sub">
-            Mihomo {st.core_version || '-'} · Dash v{st.dash_version}
+            Mihomo {coreVer} · Dash v{st.dash_version}
           </div>
         </div>
       </div>
@@ -195,8 +221,8 @@ export function OverviewPage(props: {
           <div class="card-header">
             <h3 class="card-title">实时速率趋势</h3>
             <div class="row" style={{ fontSize: '12px' }}>
-              <span class="badge badge-green">下行 {formatBytes(downRate, true)}</span>
-              <span class="badge badge-accent">上行 {formatBytes(upRate, true)}</span>
+              <span class="badge badge-green">↓ {formatBytes(downRate, true)}</span>
+              <span class="badge badge-accent">↑ {formatBytes(upRate, true)}</span>
             </div>
           </div>
           <TrafficChart up={upHist} down={downHist} />
@@ -208,9 +234,14 @@ export function OverviewPage(props: {
         <div class="card">
           <div class="card-header">
             <h3 class="card-title">健康摘要</h3>
-            <button class="btn btn-sm" onClick={() => props.onNavigate('logs')}>
-              日志与诊断
-            </button>
+            <div class="row">
+              <button class="btn btn-sm" onClick={() => props.onNavigate('settings')}>
+                设置
+              </button>
+              <button class="btn btn-sm" onClick={() => props.onNavigate('logs')}>
+                日志与诊断
+              </button>
+            </div>
           </div>
           <div class="stack" style={{ gap: '9px' }}>
             <div class="row-between">
@@ -232,8 +263,11 @@ export function OverviewPage(props: {
               </span>
             </div>
             <div class="row-between">
-              <span>DNS 模式</span>
-              <span class="badge badge-accent">{st.dns_mode || '未覆盖'}</span>
+              <span>DNS 模式 / 运行模式</span>
+              <div class="row" style={{ gap: '6px' }}>
+                <span class="badge badge-accent">{st.dns_mode || '未覆盖'}</span>
+                <span class="badge badge-purple">{st.mode}</span>
+              </div>
             </div>
           </div>
         </div>
@@ -249,10 +283,16 @@ export function OverviewPage(props: {
         {!st.running ? (
           <div style={{ color: 'var(--text-muted)', fontSize: '13px' }}>
             Nikki 尚未启动。你可以前往{' '}
-            <a href="#profiles" onClick={(e) => { e.preventDefault(); props.onNavigate('profiles'); }}>
+            <a
+              href="#profiles"
+              onClick={(e) => {
+                e.preventDefault();
+                props.onNavigate('profiles');
+              }}
+            >
               配置与订阅
             </a>{' '}
-            确认配置后启动服务。
+            确认配置后点击右上角「启动代理」。
           </div>
         ) : (metrics?.groups?.length ?? 0) === 0 ? (
           <div style={{ color: 'var(--text-muted)', fontSize: '13px' }}>暂无策略组数据</div>

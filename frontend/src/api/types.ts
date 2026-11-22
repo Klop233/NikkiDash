@@ -319,6 +319,7 @@ export interface ManagedFileEntry {
   name: string;
   category: string;
   writable: boolean;
+  binary?: boolean;
   exists: boolean;
   size: number;
   mtime: number;

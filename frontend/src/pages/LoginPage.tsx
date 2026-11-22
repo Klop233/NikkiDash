@@ -48,7 +48,7 @@ export function LoginPage(props: {
           <div>
             <h1 style={{ margin: 0, fontSize: '20px' }}>{t.login.title}</h1>
             <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-              {t.appName} v{props.authInfo?.version || '0.1.0'}
+              {t.appName} v{props.authInfo?.version || '0.3.0'}
             </div>
           </div>
         </div>

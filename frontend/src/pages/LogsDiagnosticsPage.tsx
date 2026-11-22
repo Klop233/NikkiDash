@@ -11,6 +11,8 @@ export function LogsDiagnosticsPage(props: {
   const [lines, setLines] = useState<string[]>([]);
   const [totalBytes, setTotalBytes] = useState(0);
   const [truncated, setTruncated] = useState(false);
+  const [paused, setPaused] = useState(false);
+  const [pollError, setPollError] = useState<string | null>(null);
   const [level, setLevel] = useState<'all' | 'error' | 'warn' | 'info' | 'debug'>('all');
   const [search, setSearch] = useState('');
   const [autoScroll, setAutoScroll] = useState(true);
@@ -32,11 +34,12 @@ export function LogsDiagnosticsPage(props: {
       setLines(res.lines || []);
       setTotalBytes(res.total_bytes || 0);
       setTruncated(res.truncated || false);
+      setPollError(null);
     },
     (err) => {
-      props.notify('error', `读取日志失败: ${(err as Error).message}`);
+      setPollError((err as Error).message || '读取日志失败');
     },
-    { intervalMs: 4000, enabled: true }
+    { intervalMs: 4000, enabled: !paused, refreshKey: source }
   );
 
   const filteredLines = useMemo(() => {
@@ -111,6 +114,9 @@ export function LogsDiagnosticsPage(props: {
           <p class="page-desc">实时查看经过脱敏处理的 Nikki 应用日志与 Mihomo 核心日志，支持一键生成脱敏诊断包</p>
         </div>
         <div class="row">
+          <button class={`btn ${paused ? 'btn-primary' : ''}`} onClick={() => setPaused((p) => !p)}>
+            {paused ? '继续刷新' : '暂停刷新'}
+          </button>
           <button class="btn btn-primary" onClick={handleGenerateDiag} disabled={diagBusy}>
             {diagBusy ? '正在生成诊断包...' : '生成脱敏诊断包'}
           </button>
@@ -125,6 +131,15 @@ export function LogsDiagnosticsPage(props: {
           Mihomo 核心日志 (core.log)
         </button>
       </div>
+
+      {pollError && (
+        <div class="alert alert-danger">
+          <div>读取日志异常：{pollError}</div>
+          <button class="btn btn-sm" onClick={() => void refresh()}>
+            重试
+          </button>
+        </div>
+      )}
 
       <div class="card">
         <div class="row-between" style={{ marginBottom: '12px' }}>
@@ -161,10 +176,10 @@ export function LogsDiagnosticsPage(props: {
             <span class="badge">
               {filteredLines.length} 行 · {formatBytes(totalBytes)} {truncated ? '(已截断尾部)' : ''}
             </span>
-            <button class="btn btn-sm" onClick={refresh}>
+            <button class="btn btn-sm" onClick={() => void refresh()}>
               刷新
             </button>
-            <button class="btn btn-sm" onClick={handleCopy}>
+            <button class="btn btn-sm" onClick={() => void handleCopy()}>
               复制
             </button>
             <button
@@ -179,7 +194,6 @@ export function LogsDiagnosticsPage(props: {
           </div>
         </div>
 
-        {/* Strictly text-node rendering to guarantee XSS safety */}
         <div class="log-box" ref={boxRef} role="log">
           {filteredLines.length === 0 ? (
             <div style={{ color: 'var(--text-muted)' }}>暂无日志记录</div>

@@ -2,11 +2,12 @@
 
 'use strict';
 
-import { access, readfile, lstat } from 'fs';
+import { access, open, readfile, lstat } from 'fs';
 import { cursor } from 'uci';
 import { connect } from 'ubus';
 import {
 	TASKS_DIR, TMP_DIR, NIKKI_RUN_DIR, NIKKI_RUN_CONFIG, NIKKI_MIXIN_PATH,
+	NIKKI_APP_LOG, NIKKI_CORE_LOG,
 	ensure_dir, exec_argv, acquire_lock, release_lock, safe_unlink,
 	compute_config_revision, redact_text, cmd_exists, make_tmp_file, write_file_atomic
 } from '/usr/share/nikki-dash/lib/common.uc';
@@ -47,8 +48,44 @@ function finish(status, message, err, result) {
 	safe_unlink(payload_path);
 }
 
-function wait_for_nikki_ready(ubus, expect_running, timeout_sec) {
-	let deadline = time() + (timeout_sec ?? 20);
+function read_log_tail_since(path, offset) {
+	let st = lstat(path);
+	if (!st || st.type != 'file' || st.size <= offset) return '';
+	let f = open(path, 'r');
+	if (!f) return '';
+	let start = offset;
+	if (st.size - start > 16384) start = st.size - 16384;
+	if (start > 0) f.seek(start, 0);
+	let chunk = f.read(16384) ?? '';
+	f.close();
+	return trim(redact_text(chunk));
+}
+
+function detect_nikki_early_exit(app_offset, core_offset) {
+	let new_app = read_log_tail_since(NIKKI_APP_LOG, app_offset);
+	if (length(new_app) == 0) return null;
+	if (
+		index(new_app, '[App] Exit.') >= 0 ||
+		index(new_app, 'Test failed.') >= 0 ||
+		index(new_app, 'Profile not found') >= 0 ||
+		index(new_app, 'Subscription file not found') >= 0 ||
+		index(new_app, 'Check failed') >= 0
+	) {
+		let new_core = read_log_tail_since(NIKKI_CORE_LOG, core_offset);
+		let lines = split(new_app, '\n');
+		let tail_app = join(' | ', slice(lines, length(lines) > 6 ? length(lines) - 6 : 0));
+		if (length(new_core) > 0) {
+			let clines = split(new_core, '\n');
+			let tail_core = join(' | ', slice(clines, length(clines) > 4 ? length(clines) - 4 : 0));
+			return `${tail_app} — Core: ${tail_core}`;
+		}
+		return tail_app;
+	}
+	return null;
+}
+
+function wait_for_nikki_ready(ubus, expect_running, timeout_sec, app_offset, core_offset) {
+	let deadline = time() + (timeout_sec ?? 35);
 	while (time() <= deadline) {
 		let svc = ubus.call('service', 'list', { name: 'nikki' });
 		let running = svc?.nikki?.instances?.nikki?.running == true;
@@ -56,13 +93,18 @@ function wait_for_nikki_ready(ubus, expect_running, timeout_sec) {
 			if (!running) return { state: 'ready', running: false };
 		} else {
 			if (running) {
-				let ctrl = resolve_controller();
+				let ctrl = resolve_controller(true);
 				if (!ctrl.configured) {
 					return { state: 'ready', running: true, controller: controller_public_info(ctrl) };
 				}
 				let vr = api_version(ctrl);
 				if (vr.ok) {
 					return { state: 'ready', running: true, version: vr.data, controller: controller_public_info(ctrl) };
+				}
+			} else if (app_offset != null) {
+				let early = detect_nikki_early_exit(app_offset, core_offset ?? 0);
+				if (early) {
+					return { state: 'failed', running: false, error: early };
 				}
 			}
 		}
@@ -212,6 +254,8 @@ function handle_apply_config(ubus) {
 		}
 
 		let should_run = fresh_uci.get('nikki', 'config', 'enabled') == '1';
+		let app_off = lstat(NIKKI_APP_LOG)?.size ?? 0;
+		let core_off = lstat(NIKKI_CORE_LOG)?.size ?? 0;
 		step('reload_service', 'running', should_run ? 'Restarting Nikki service' : 'Stopping Nikki service');
 		let svc_cmd = should_run ? ['/etc/init.d/nikki', 'restart'] : ['/etc/init.d/nikki', 'stop'];
 		let sr = exec_argv(svc_cmd, { max_bytes: 65536 });
@@ -229,9 +273,24 @@ function handle_apply_config(ubus) {
 		}
 
 		step('readiness', 'running', 'Waiting for procd & Mihomo readiness');
-		let ready = wait_for_nikki_ready(ubus, should_run, 20);
+		let ready = wait_for_nikki_ready(ubus, should_run, 35, app_off, core_off);
 		let new_rev = compute_config_revision();
-		let ctrl_info = controller_public_info(resolve_controller());
+		let ctrl_info = controller_public_info(resolve_controller(should_run && ready.state == 'ready'));
+
+		if (ready.state == 'failed') {
+			step('rollback', 'running', 'Nikki exited during startup; rolling back backup');
+			let rb_ok = restore_nikki_snapshot(snap);
+			if (rb_ok && (cursor().get('nikki', 'config', 'enabled') == '1')) {
+				exec_argv(['/etc/init.d/nikki', 'restart']);
+			}
+			release_lock();
+			finish(
+				rb_ok ? 'rolled_back' : 'rollback_failed',
+				rb_ok ? 'Nikki failed to start and previous config was restored' : 'Nikki failed to start and rollback encountered an error',
+				ready.error
+			);
+			return;
+		}
 
 		if (ready.state == 'timeout') {
 			// Timeout != definite failure: do NOT blindly rollback, return unknown!
@@ -270,7 +329,22 @@ function handle_service_action(ubus) {
 	}
 
 	try {
+		if (!access('/etc/init.d/nikki', 'x')) {
+			release_lock();
+			finish('failed', 'Nikki core is not installed', 'Please install Nikki core first in Setup Wizard or Panel Settings');
+			return;
+		}
+
 		let uci = cursor();
+		if (act == 'start' || act == 'restart') {
+			let prof = uci.get('nikki', 'config', 'profile') ?? '';
+			if (act == 'start' && length(trim(prof)) == 0) {
+				release_lock();
+				finish('failed', 'No active profile selected', 'Please select or import a profile/subscription in Profiles before starting Nikki');
+				return;
+			}
+		}
+
 		if (act == 'start') {
 			uci.set('nikki', 'config', 'enabled', '1');
 			uci.commit('nikki');
@@ -278,6 +352,9 @@ function handle_service_action(ubus) {
 			uci.set('nikki', 'config', 'enabled', '0');
 			uci.commit('nikki');
 		}
+
+		let app_off = lstat(NIKKI_APP_LOG)?.size ?? 0;
+		let core_off = lstat(NIKKI_CORE_LOG)?.size ?? 0;
 
 		step('service_exec', 'running', `Running /etc/init.d/nikki ${act}`);
 		let r = exec_argv(['/etc/init.d/nikki', act], { max_bytes: 65536 });
@@ -290,7 +367,15 @@ function handle_service_action(ubus) {
 		if (act == 'start' || act == 'restart' || act == 'reload' || act == 'stop') {
 			let expect_up = (act != 'stop') && (cursor().get('nikki', 'config', 'enabled') == '1');
 			step('readiness', 'running', expect_up ? 'Waiting for Nikki readiness' : 'Confirming Nikki stopped');
-			let ready = wait_for_nikki_ready(ubus, expect_up, 20);
+			let ready = wait_for_nikki_ready(ubus, expect_up, 35, app_off, core_off);
+			if (ready.state == 'failed') {
+				release_lock();
+				finish('failed', `Nikki exited during ${act}`, ready.error, {
+					running: false,
+					revision: compute_config_revision()
+				});
+				return;
+			}
 			if (ready.state == 'timeout') {
 				release_lock();
 				finish('unknown', `Timed out waiting after ${act}; check live status`, null, {
@@ -302,7 +387,7 @@ function handle_service_action(ubus) {
 			finish('succeeded', `Service ${act} completed`, null, {
 				running: ready.running,
 				revision: compute_config_revision(),
-				controller: controller_public_info(resolve_controller())
+				controller: controller_public_info(resolve_controller(ready.running))
 			});
 			return;
 		}

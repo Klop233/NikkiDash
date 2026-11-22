@@ -39,34 +39,57 @@ function is_wildcard_host(host) {
 }
 
 /*
- * Reads effective controller config from generated /etc/nikki/run/config.yaml
- * (falling back to UCI nikki.mixin only for inspection/warning).
- * ALWAYS connects via loopback (127.0.0.1 or [::1]) — never arbitrary remote host!
+ * Reads effective controller config:
+ * - When Nikki is running (or is_running == null/true): prefers generated /etc/nikki/run/config.yaml
+ *   and falls back to UCI nikki.mixin.
+ * - When Nikki is stopped (is_running === false): prefers UCI nikki.mixin so edits (like fixing
+ *   api_listen to 127.0.0.1:9090) reflect immediately without waiting for the next restart.
  */
-export function resolve_controller() {
+export function resolve_controller(is_running) {
 	let profile = {};
 	let source = 'none';
+	let prefer_run = (is_running !== false);
 
-	if (access(NIKKI_RUN_CONFIG, 'r')) {
+	let uci = cursor();
+	let uci_listen = uci.get('nikki', 'mixin', 'api_listen');
+	let uci_tls_listen = uci.get('nikki', 'mixin', 'api_tls_listen');
+	let uci_secret = uci.get('nikki', 'mixin', 'api_secret');
+
+	let api_listen = null;
+	let api_tls_listen = null;
+	let secret = null;
+
+	if (prefer_run && access(NIKKI_RUN_CONFIG, 'r')) {
 		let r = exec_argv(['yq', '-M', '-p', 'yaml', '-o', 'json', NIKKI_RUN_CONFIG], { max_bytes: 1024 * 1024 });
 		if (r.code == 0 && length(r.stdout) > 0) {
 			try {
 				profile = json(r.stdout) ?? {};
-				source = 'run_config';
+				api_listen = profile['external-controller'];
+				api_tls_listen = profile['external-controller-tls'];
+				secret = profile['secret'];
+				if (api_listen || api_tls_listen) source = 'run_config';
 			} catch (e) {}
 		}
 	}
 
-	let uci = cursor();
-	let api_listen = profile['external-controller'];
-	let api_tls_listen = profile['external-controller-tls'];
-	let secret = profile['secret'];
-
 	if (!api_listen && !api_tls_listen) {
-		api_listen = uci.get('nikki', 'mixin', 'api_listen');
-		api_tls_listen = uci.get('nikki', 'mixin', 'api_tls_listen');
-		secret = uci.get('nikki', 'mixin', 'api_secret');
-		if (api_listen || api_tls_listen) source = 'uci_fallback';
+		api_listen = uci_listen;
+		api_tls_listen = uci_tls_listen;
+		secret = uci_secret;
+		if (api_listen || api_tls_listen) source = prefer_run ? 'uci_fallback' : 'uci';
+	}
+
+	if (!prefer_run && !api_listen && !api_tls_listen && access(NIKKI_RUN_CONFIG, 'r')) {
+		let r = exec_argv(['yq', '-M', '-p', 'yaml', '-o', 'json', NIKKI_RUN_CONFIG], { max_bytes: 1024 * 1024 });
+		if (r.code == 0 && length(r.stdout) > 0) {
+			try {
+				profile = json(r.stdout) ?? {};
+				api_listen = profile['external-controller'];
+				api_tls_listen = profile['external-controller-tls'];
+				secret = profile['secret'];
+				if (api_listen || api_tls_listen) source = 'run_config';
+			} catch (e) {}
+		}
 	}
 
 	let use_tls = (type(api_tls_listen) == 'string' && length(trim(api_tls_listen)) > 0);
@@ -287,10 +310,18 @@ export function api_test_delay(kind, name, test_url, timeout_ms) {
 		? `/group/${url_encode(name)}/delay`
 		: `/proxies/${url_encode(name)}/delay`;
 	let query = `url=${url_encode(url)}&timeout=${ms}`;
-	return mihomo_request('GET', path, {
+	let res = mihomo_request('GET', path, {
 		query: query,
 		timeout_sec: int(ms / 1000) + 4
 	});
+	// Mihomo returns HTTP 503/504 when a node times out during delay testing; normalize cleanly to delay=0
+	if (!res.ok && (res.error_code == 'CONTROLLER_HTTP_ERROR' && (res.http_code == 503 || res.http_code == 504 || res.http_code == 408) || res.error_code == 'CONTROLLER_TIMEOUT')) {
+		return ok_res({
+			http_code: res.http_code ?? 504,
+			data: { delay: 0, timeout: true, message: res.error }
+		});
+	}
+	return res;
 };
 
 export function api_get_connections() {

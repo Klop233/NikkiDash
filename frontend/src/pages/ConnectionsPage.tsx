@@ -1,9 +1,9 @@
-import { useCallback, useMemo, useState } from 'preact/hooks';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { nikkiApi } from '../api/nikki';
 import { usePolling } from '../hooks/usePolling';
 import { StateView } from '../components/StateView';
 import { ConfirmModal } from '../components/ConfirmModal';
-import { formatBytes, formatTimeAgo } from '../utils/format';
+import { formatBytes, formatHostPort, formatTimeAgo } from '../utils/format';
 import type { ConnectionItem } from '../api/types';
 
 const PAGE_SIZE = 50;
@@ -13,23 +13,58 @@ export function ConnectionsPage(props: {
   notify: (kind: 'success' | 'error' | 'info', msg: string) => void;
 }) {
   const [conns, setConns] = useState<ConnectionItem[]>([]);
+  const [speeds, setSpeeds] = useState<Record<string, { down: number; up: number }>>({});
   const [totals, setTotals] = useState({ up: 0, down: 0, mem: 0 });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [paused, setPaused] = useState(false);
   const [search, setSearch] = useState('');
   const [netFilter, setNetFilter] = useState<'all' | 'tcp' | 'udp'>('all');
-  const [sortBy, setSortBy] = useState<'time' | 'download' | 'upload' | 'host'>('time');
+  const [sortBy, setSortBy] = useState<'time' | 'download' | 'upload' | 'speed' | 'host'>('time');
   const [page, setPage] = useState(1);
+  const [detailConn, setDetailConn] = useState<ConnectionItem | null>(null);
   const [confirmCloseAll, setConfirmCloseAll] = useState(false);
   const [closingAll, setClosingAll] = useState(false);
+
+  const prevSnapRef = useRef<{ ts: number; map: Map<string, { up: number; down: number }> }>({
+    ts: 0,
+    map: new Map()
+  });
+
+  useEffect(() => {
+    if (!detailConn) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setDetailConn(null);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [detailConn]);
 
   const fetcher = useCallback((signal: AbortSignal) => nikkiApi.getConnections({ signal, timeoutMs: 8000 }), []);
 
   const { refresh } = usePolling(
     fetcher,
     (data) => {
-      setConns(data.connections || []);
+      const list = data.connections || [];
+      const now = Date.now();
+      const dt = prevSnapRef.current.ts > 0 ? Math.max(0.5, (now - prevSnapRef.current.ts) / 1000) : 0;
+      const nextSpeeds: Record<string, { down: number; up: number }> = {};
+      const nextMap = new Map<string, { up: number; down: number }>();
+
+      for (const c of list) {
+        nextMap.set(c.id, { up: c.upload, down: c.download });
+        const prev = prevSnapRef.current.map.get(c.id);
+        if (prev && dt > 0) {
+          nextSpeeds[c.id] = {
+            down: Math.max(0, (c.download - prev.down) / dt),
+            up: Math.max(0, (c.upload - prev.up) / dt)
+          };
+        }
+      }
+      prevSnapRef.current = { ts: now, map: nextMap };
+
+      setConns(list);
+      setSpeeds(nextSpeeds);
       setTotals({ up: data.upload_total, down: data.download_total, mem: data.memory });
       setLoading(false);
       setError(null);
@@ -46,27 +81,38 @@ export function ConnectionsPage(props: {
     const list = conns.filter((c) => {
       if (netFilter !== 'all' && (c.metadata?.network || '').toLowerCase() !== netFilter) return false;
       if (!q) return true;
-      const target = `${c.metadata?.host || ''} ${c.metadata?.destinationIP || ''} ${c.metadata?.sourceIP || ''} ${c.rule || ''} ${c.rulePayload || ''} ${(c.chains || []).join(' ')}`.toLowerCase();
+      const target = `${c.metadata?.host || ''} ${c.metadata?.destinationIP || ''} ${c.metadata?.sourceIP || ''} ${c.metadata?.process || ''} ${c.rule || ''} ${c.rulePayload || ''} ${(c.chains || []).join(' ')}`.toLowerCase();
       return target.includes(q);
     });
 
     list.sort((a, b) => {
       if (sortBy === 'download') return b.download - a.download;
       if (sortBy === 'upload') return b.upload - a.upload;
-      if (sortBy === 'host') return (a.metadata?.host || a.metadata?.destinationIP || '').localeCompare(b.metadata?.host || b.metadata?.destinationIP || '');
+      if (sortBy === 'speed') {
+        const sa = (speeds[a.id]?.down || 0) + (speeds[a.id]?.up || 0);
+        const sb = (speeds[b.id]?.down || 0) + (speeds[b.id]?.up || 0);
+        return sb - sa;
+      }
+      if (sortBy === 'host') {
+        return (a.metadata?.host || a.metadata?.destinationIP || '').localeCompare(
+          b.metadata?.host || b.metadata?.destinationIP || ''
+        );
+      }
       return Date.parse(b.start) - Date.parse(a.start);
     });
     return list;
-  }, [conns, search, netFilter, sortBy]);
+  }, [conns, speeds, search, netFilter, sortBy]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const safePage = Math.min(page, totalPages);
   const pageItems = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
 
-  const handleCloseOne = async (id: string) => {
+  const handleCloseOne = async (id: string, e?: Event) => {
+    e?.stopPropagation();
     try {
       await nikkiApi.closeConnection(id);
       setConns((prev) => prev.filter((c) => c.id !== id));
+      if (detailConn?.id === id) setDetailConn(null);
       props.notify('info', '已断开连接');
     } catch (err) {
       props.notify('error', (err as Error).message);
@@ -78,6 +124,7 @@ export function ConnectionsPage(props: {
     try {
       await nikkiApi.closeAllConnections();
       setConns([]);
+      setDetailConn(null);
       setConfirmCloseAll(false);
       props.notify('success', '已关闭全部活跃连接');
     } catch (err) {
@@ -103,7 +150,7 @@ export function ConnectionsPage(props: {
         <div>
           <h2 class="page-title">活跃连接 ({filtered.length})</h2>
           <p class="page-desc">
-            累计下行 {formatBytes(totals.down)} · 累计上行 {formatBytes(totals.up)} · 内存 {formatBytes(totals.mem)}
+            累计下行 {formatBytes(totals.down)} · 累计上行 {formatBytes(totals.up)} · 内存 {formatBytes(totals.mem)} · 点击任意行查看详情
           </p>
         </div>
         <div class="row">
@@ -120,8 +167,8 @@ export function ConnectionsPage(props: {
         <div class="row">
           <input
             class="input"
-            style={{ maxWidth: '280px' }}
-            placeholder="搜索域名 / IP / 规则 / 链路..."
+            style={{ maxWidth: '300px' }}
+            placeholder="搜索域名 / IP / 进程 / 规则 / 链路..."
             value={search}
             onInput={(e) => {
               setSearch((e.currentTarget as HTMLInputElement).value);
@@ -145,13 +192,21 @@ export function ConnectionsPage(props: {
             class="select"
             style={{ maxWidth: '150px' }}
             value={sortBy}
-            onChange={(e) => setSortBy((e.currentTarget as HTMLSelectElement).value as 'time' | 'download' | 'upload' | 'host')}
+            onChange={(e) =>
+              setSortBy((e.currentTarget as HTMLSelectElement).value as 'time' | 'download' | 'upload' | 'speed' | 'host')
+            }
           >
             <option value="time">最新建立</option>
+            <option value="speed">按实时速率</option>
             <option value="download">按下载量</option>
             <option value="upload">按上传量</option>
             <option value="host">按目标域名</option>
           </select>
+          {search && (
+            <button class="btn btn-sm btn-ghost" onClick={() => setSearch('')}>
+              清除
+            </button>
+          )}
         </div>
       </div>
 
@@ -165,7 +220,7 @@ export function ConnectionsPage(props: {
                 <th>协议</th>
                 <th>规则</th>
                 <th>代理链</th>
-                <th>下载 / 上传</th>
+                <th>流量 / 速率</th>
                 <th>建立时间</th>
                 <th>操作</th>
               </tr>
@@ -180,11 +235,12 @@ export function ConnectionsPage(props: {
               ) : (
                 pageItems.map((c) => {
                   const dest = c.metadata?.host
-                    ? `${c.metadata.host}:${c.metadata.destinationPort}`
-                    : `${c.metadata?.destinationIP || '-'}:${c.metadata?.destinationPort || ''}`;
-                  const src = `${c.metadata?.sourceIP || '-'}:${c.metadata?.sourcePort || ''}`;
+                    ? formatHostPort(c.metadata.host, c.metadata.destinationPort)
+                    : formatHostPort(c.metadata?.destinationIP, c.metadata?.destinationPort);
+                  const src = formatHostPort(c.metadata?.sourceIP, c.metadata?.sourcePort);
+                  const sp = speeds[c.id];
                   return (
-                    <tr key={c.id}>
+                    <tr key={c.id} class="clickable-row" onClick={() => setDetailConn(c)}>
                       <td class="mono" style={{ maxWidth: '260px', wordBreak: 'break-all' }}>
                         {dest}
                       </td>
@@ -202,13 +258,20 @@ export function ConnectionsPage(props: {
                         {[...(c.chains || [])].reverse().join(' → ')}
                       </td>
                       <td class="mono" style={{ fontSize: '12px', whiteSpace: 'nowrap' }}>
-                        ↓ {formatBytes(c.download)} / ↑ {formatBytes(c.upload)}
+                        <div>
+                          ↓ {formatBytes(c.download)} / ↑ {formatBytes(c.upload)}
+                        </div>
+                        {sp && (sp.down > 0 || sp.up > 0) && (
+                          <div style={{ fontSize: '11px', color: 'var(--green)' }}>
+                            ↓ {formatBytes(sp.down, true)} · ↑ {formatBytes(sp.up, true)}
+                          </div>
+                        )}
                       </td>
                       <td style={{ fontSize: '12px', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
                         {formatTimeAgo(c.start)}
                       </td>
                       <td>
-                        <button class="btn btn-sm btn-danger" onClick={() => handleCloseOne(c.id)}>
+                        <button class="btn btn-sm btn-danger" onClick={(e) => void handleCloseOne(c.id, e)}>
                           断开
                         </button>
                       </td>
@@ -236,6 +299,80 @@ export function ConnectionsPage(props: {
           </div>
         )}
       </div>
+
+      {/* Connection Detail Modal */}
+      {detailConn && (
+        <div
+          class="modal-overlay"
+          role="dialog"
+          aria-modal="true"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setDetailConn(null);
+          }}
+        >
+          <div class="modal-card" style={{ maxWidth: '540px' }}>
+            <div class="row-between" style={{ marginBottom: '12px' }}>
+              <h3 style={{ margin: 0 }}>连接详情</h3>
+              <span class="badge mono">{(detailConn.metadata?.network || '-').toUpperCase()}</span>
+            </div>
+            <div class="kv-grid">
+              <div class="kv-key">连接 ID</div>
+              <div class="kv-val mono">{detailConn.id}</div>
+              <div class="kv-key">目标域名</div>
+              <div class="kv-val mono">{detailConn.metadata?.host || '-'}</div>
+              <div class="kv-key">目标地址</div>
+              <div class="kv-val mono">
+                {formatHostPort(detailConn.metadata?.destinationIP, detailConn.metadata?.destinationPort)}
+              </div>
+              <div class="kv-key">来源地址</div>
+              <div class="kv-val mono">
+                {formatHostPort(detailConn.metadata?.sourceIP, detailConn.metadata?.sourcePort)}
+              </div>
+              <div class="kv-key">入站类型</div>
+              <div class="kv-val">{detailConn.metadata?.type || '-'}</div>
+              <div class="kv-key">DNS 模式</div>
+              <div class="kv-val">{detailConn.metadata?.dnsMode || '-'}</div>
+              <div class="kv-key">进程名</div>
+              <div class="kv-val mono">{detailConn.metadata?.process || '-'}</div>
+              <div class="kv-key">匹配规则</div>
+              <div class="kv-val mono">
+                {detailConn.rule}
+                {detailConn.rulePayload ? ` (${detailConn.rulePayload})` : ''}
+              </div>
+              <div class="kv-key">代理链路</div>
+              <div class="kv-val" style={{ color: 'var(--accent)' }}>
+                {[...(detailConn.chains || [])].reverse().join(' → ')}
+              </div>
+              <div class="kv-key">流量统计</div>
+              <div class="kv-val mono">
+                下行 {formatBytes(detailConn.download)} · 上行 {formatBytes(detailConn.upload)}
+              </div>
+              <div class="kv-key">建立时间</div>
+              <div class="kv-val">{detailConn.start}</div>
+            </div>
+            <div class="modal-actions">
+              {(detailConn.metadata?.host || detailConn.metadata?.destinationIP) && (
+                <button
+                  class="btn"
+                  onClick={() => {
+                    const target = detailConn.metadata?.host || detailConn.metadata?.destinationIP || '';
+                    void navigator.clipboard?.writeText(target);
+                    props.notify('success', `已复制 ${target}`);
+                  }}
+                >
+                  复制目标
+                </button>
+              )}
+              <button class="btn btn-danger" onClick={() => void handleCloseOne(detailConn.id)}>
+                断开此连接
+              </button>
+              <button class="btn btn-primary" onClick={() => setDetailConn(null)}>
+                关闭
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <ConfirmModal
         open={confirmCloseAll}

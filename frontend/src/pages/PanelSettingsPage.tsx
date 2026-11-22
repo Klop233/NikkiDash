@@ -33,6 +33,7 @@ export function PanelSettingsPage(props: {
   );
   const [coreBusy, setCoreBusy] = useState(false);
   const [removeLuciModal, setRemoveLuciModal] = useState(false);
+  const [redirectUrl, setRedirectUrl] = useState<string | null>(null);
 
   const [mode, setMode] = useState<AccessMode>('lan_auth');
   const [httpPort, setHttpPort] = useState(18080);
@@ -91,11 +92,13 @@ export function PanelSettingsPage(props: {
       });
       setAccess(res.access);
       if (res.restarting) {
-        props.notify(
-          'info',
-          `面板访问配置已保存，独立 uhttpd 正在重载到 ${res.next_scheme}://<router>:${res.next_port}`
-        );
+        const host = typeof window !== 'undefined' ? window.location.hostname : '192.168.1.1';
+        const formattedHost = host.includes(':') && !host.startsWith('[') ? `[${host}]` : host;
+        const nextUrl = `${res.next_scheme}://${formattedHost}:${res.next_port}/`;
+        setRedirectUrl(nextUrl);
+        props.notify('info', `面板访问配置已保存，独立 uhttpd 正在重载到 ${nextUrl}`);
       } else {
+        setRedirectUrl(null);
         props.notify('success', '面板设置已保存');
       }
     } catch (err) {
@@ -155,6 +158,18 @@ export function PanelSettingsPage(props: {
           <button class="btn btn-sm btn-primary" onClick={props.onSwitchToAdminLogin}>
             切换为管理员登录
           </button>
+        </div>
+      )}
+
+      {redirectUrl && (
+        <div class="alert alert-success">
+          <div>
+            <strong>独立 uhttpd 正在重载到新监听地址：</strong>
+            <span class="mono">{redirectUrl}</span>（约 2 秒后生效）
+          </div>
+          <a class="btn btn-sm btn-primary" href={redirectUrl}>
+            立即前往新地址
+          </a>
         </div>
       )}
 
