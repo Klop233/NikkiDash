@@ -35,9 +35,11 @@ export const enUS = {
   },
   login: {
     title: 'Sign in to NikkiDash',
-    subtitle: 'Authenticate with your OpenWrt router account. Session SID stays in JS memory only.',
+    subtitle: 'Authenticate with your OpenWrt router account (Bearer auth, no cookies/CSRF).',
     username: 'Username',
     password: 'Password',
+    remember: 'Stay signed in across browser restarts (until session timeout or sign out)',
+    rememberHint: 'When unchecked, your session still survives page refresh and clears when the tab closes.',
     submit: 'Sign In',
     loggingIn: 'Signing in...',
     guestButton: 'Enter with LAN Guest Session',

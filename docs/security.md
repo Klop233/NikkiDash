@@ -8,10 +8,10 @@
 
 ## 2. 会话凭据与跨站防护
 
-- 登录 SID **仅保存在浏览器 JavaScript 内存变量** 中，不写入 Cookie、`localStorage`、`sessionStorage` 或 URL。
-- 请求使用 `POST /ubus/call/<object>` 搭配 `Authorization: Bearer <sid>` 与 `credentials: 'omit'`。
+- 登录 SID 绝不写入 Cookie 或 URL，全部请求通过 `POST /ubus/call/<object>` 搭配 `Authorization: Bearer <sid>` 与 `credentials: 'omit'` 发送，彻底免疫 CSRF。
+- 为支持刷新页面保留登录态，SID 默认保存在当前标签页隔离的 `sessionStorage`；用户在登录页勾选「保持登录状态」时（LAN 模式默认勾选，WAN HTTPS 模式默认不勾选）才同步写入同源 `localStorage`，退出登录或会话过期时立即从两端清除并调用路由器 `session.destroy`。
 - 独立 `uhttpd` 实例严格禁用 CORS（不传 `-X`）且强制开启鉴权（严禁 `-a` / `no_ubusauth`），并启用 `-S`（禁止越界符号链接）和 `-D`（禁止目录列表）。
-- 通过 `-H /usr/share/nikki-dash/headers.json` 下发安全响应头：`X-Content-Type-Options: nosniff`、`X-Frame-Options: DENY`、`Referrer-Policy: no-referrer` 与严格的 `Content-Security-Policy`。
+- 通过 `-H /usr/share/nikki-dash/headers.json` 下发安全响应头：`X-Content-Type-Options: nosniff`、`X-Frame-Options: DENY`、`Referrer-Policy: no-referrer` 与严格的 `Content-Security-Policy`（`script-src 'self'`，零外链脚本）。
 - 所有日志、YAML 内容与节点名称均以纯文本节点渲染，免疫 XSS。
 
 ## 3. 三种访问模式与互斥规则

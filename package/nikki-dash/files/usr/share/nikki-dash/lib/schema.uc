@@ -377,6 +377,7 @@ export function validate_and_stage_changes(uci, changes) {
 	}
 
 	// 3. Stage named section mutations into UCI cursor (preserving unknown options!)
+	uci.load('nikki');
 	for (let sid in staged_named) {
 		let stype = schema.named_sections[sid].type;
 		if (!uci.get('nikki', sid)) {

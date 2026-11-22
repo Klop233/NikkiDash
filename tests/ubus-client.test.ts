@@ -4,6 +4,8 @@ import {
   setSessionSid,
   clearSessionSid,
   getSessionSid,
+  saveStoredSession,
+  loadStoredSession,
   setAuthExpiredHandler,
   splitUtf8Chunks,
   RpcError
@@ -75,6 +77,28 @@ describe('ubus HTTP client security & resilience', () => {
     await expect(ubusCall('nikki-dash', 'get_status')).rejects.toMatchObject({ code: 'SESSION_EXPIRED' });
     expect(getSessionSid()).toBe('');
     expect(onExp).toHaveBeenCalledTimes(1);
+  });
+
+  it('persists session across refresh via sessionStorage/localStorage without cookies and clears both on logout', () => {
+    const sess = {
+      sid: 'cccccccccccccccccccccccccccccccc',
+      username: 'root',
+      isGuest: false,
+      isAdmin: true,
+      expiresAt: Date.now() + 3600_000
+    };
+    saveStoredSession(sess, false);
+    expect(document.cookie).toBe('');
+    expect(loadStoredSession()?.sid).toBe(sess.sid);
+    expect(localStorage.getItem('nikki_dash_session_v1')).toBeNull();
+
+    saveStoredSession(sess, true);
+    expect(localStorage.getItem('nikki_dash_session_v1')).not.toBeNull();
+
+    clearSessionSid();
+    expect(loadStoredSession()).toBeNull();
+    expect(sessionStorage.getItem('nikki_dash_session_v1')).toBeNull();
+    expect(localStorage.getItem('nikki_dash_session_v1')).toBeNull();
   });
 
   it('splits large UTF-8 YAML into base64 chunks under uhttpd 64 KiB POST limit', () => {

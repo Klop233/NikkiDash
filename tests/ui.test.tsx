@@ -34,7 +34,8 @@ describe('NikkiDash UI components & XSS safety', () => {
     const passInput = getByLabelText('密码') as HTMLInputElement;
     fireEvent.input(passInput, { target: { value: 'routerpass' } });
     fireEvent.click(getByText('登录'));
-    expect(onLogin).toHaveBeenCalledWith('root', 'routerpass');
+    // In WAN HTTPS mode, "remember across restarts" defaults to false (sessionStorage only)
+    expect(onLogin).toHaveBeenCalledWith('root', 'routerpass', false);
   });
 
   it('renders LogsDiagnosticsPage safely without executing HTML/XSS payloads', async () => {

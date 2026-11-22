@@ -35,9 +35,11 @@ export const zhCN = {
   },
   login: {
     title: '登录 NikkiDash',
-    subtitle: '使用 OpenWrt 路由器系统账号登录，会话令牌仅驻留于浏览器内存。',
+    subtitle: '使用 OpenWrt 路由器系统账号登录（Bearer 鉴权，无 Cookie 跨站风险）。',
     username: '用户名',
     password: '密码',
+    remember: '保持登录状态（关闭浏览器后仍保留，直至超时或退出）',
+    rememberHint: '不勾选时仍支持刷新页面保留登录，关闭标签页后自动退出。',
     submit: '登录',
     loggingIn: '正在认证...',
     guestButton: '以 LAN 免登录身份进入',

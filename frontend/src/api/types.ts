@@ -10,6 +10,7 @@ export interface AuthInfo {
   lan_guest_enabled: boolean;
   default_theme: ThemeMode;
   default_lang: LangCode;
+  session_timeout?: number;
   wan_warning: boolean;
 }
 

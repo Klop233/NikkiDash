@@ -1,11 +1,19 @@
 import { useCallback, useEffect, useMemo, useState } from 'preact/hooks';
 import {
+  checkSessionAlive,
   fetchAuthInfo,
   loginSession,
   logoutSession,
   nikkiApi
 } from './api/nikki';
-import { setAuthExpiredHandler, RpcError } from './api/ubus';
+import {
+  clearSessionSid,
+  loadStoredSession,
+  saveStoredSession,
+  setAuthExpiredHandler,
+  setSessionSid,
+  RpcError
+} from './api/ubus';
 import { I18nContext, getDict } from './i18n';
 import { useTheme } from './hooks/useTheme';
 import { usePolling } from './hooks/usePolling';
@@ -121,28 +129,35 @@ export function App() {
   }, []);
 
   const performGuestLogin = useCallback(async () => {
-    const res = await loginSession('nikki-dash-guest', '', 3600);
-    setSession({
+    const res = await loginSession('nikki-dash-guest', '', authInfo?.session_timeout ?? 3600);
+    const sess: SessionState = {
       sid: res.sid,
       username: res.username,
       isGuest: true,
       isAdmin: false,
       expiresAt: Date.now() + res.expires * 1000
-    });
+    };
+    saveStoredSession(sess, false);
+    setSession(sess);
     setExpiredNotice(false);
-  }, []);
+  }, [authInfo?.session_timeout]);
 
-  const performLogin = useCallback(async (username: string, password: string) => {
-    const res = await loginSession(username, password, 3600);
-    setSession({
-      sid: res.sid,
-      username: res.username,
-      isGuest: res.username === 'nikki-dash-guest',
-      isAdmin: res.username !== 'nikki-dash-guest',
-      expiresAt: Date.now() + res.expires * 1000
-    });
-    setExpiredNotice(false);
-  }, []);
+  const performLogin = useCallback(
+    async (username: string, password: string, remember = true) => {
+      const res = await loginSession(username, password, authInfo?.session_timeout ?? 3600);
+      const sess: SessionState = {
+        sid: res.sid,
+        username: res.username,
+        isGuest: res.username === 'nikki-dash-guest',
+        isAdmin: res.username !== 'nikki-dash-guest',
+        expiresAt: Date.now() + res.expires * 1000
+      };
+      saveStoredSession(sess, remember);
+      setSession(sess);
+      setExpiredNotice(false);
+    },
+    [authInfo?.session_timeout]
+  );
 
   const bootstrap = useCallback(async () => {
     setBooting(true);
@@ -150,7 +165,6 @@ export function App() {
     try {
       const info = await fetchAuthInfo();
       setAuthInfo(info);
-      // Only apply server default theme/lang if user hasn't picked a local preference yet
       try {
         if (info.default_theme && !localStorage.getItem('nikki_dash_theme')) setTheme(info.default_theme);
         if (info.default_lang && !localStorage.getItem(LANG_STORAGE_KEY)) setLangState(info.default_lang);
@@ -158,9 +172,32 @@ export function App() {
         if (info.default_theme) setTheme(info.default_theme);
         if (info.default_lang) setLangState(info.default_lang);
       }
+
+      // Restore persisted session across page refreshes & browser restarts after verifying with router
+      const stored = loadStoredSession();
+      if (stored && stored.sid) {
+        setSessionSid(stored.sid);
+        const alive = await checkSessionAlive();
+        if (alive) {
+          setSession(stored);
+          setExpiredNotice(false);
+          return;
+        }
+        clearSessionSid();
+      }
+
       if (info.lan_guest_enabled) {
         try {
-          await performGuestLogin();
+          const res = await loginSession('nikki-dash-guest', '', info.session_timeout ?? 3600);
+          const sess: SessionState = {
+            sid: res.sid,
+            username: res.username,
+            isGuest: true,
+            isAdmin: false,
+            expiresAt: Date.now() + res.expires * 1000
+          };
+          saveStoredSession(sess, false);
+          setSession(sess);
         } catch {
           // Stay on login screen if guest login fails
         }
@@ -170,7 +207,7 @@ export function App() {
     } finally {
       setBooting(false);
     }
-  }, [performGuestLogin, setTheme]);
+  }, [setTheme]);
 
   useEffect(() => {
     void bootstrap();

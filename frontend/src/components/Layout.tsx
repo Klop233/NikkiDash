@@ -109,7 +109,7 @@ export function Layout(props: {
           <div class="brand-mark">ND</div>
           <div class="brand-meta">
             <span class="brand-title">{t.appName}</span>
-            <span class="brand-sub">v{props.status?.dash_version || '0.3.0'}</span>
+            <span class="brand-sub">v{props.status?.dash_version || '0.3.1'}</span>
           </div>
         </div>
 

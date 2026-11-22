@@ -95,6 +95,7 @@ const methods = {
 				lan_guest_enabled: (mode == 'lan_guest' && rpcd_guest),
 				default_theme: uci.get('nikki_dash', 'main', 'theme') ?? 'system',
 				default_lang: uci.get('nikki_dash', 'main', 'lang') ?? 'zh-CN',
+				session_timeout: int(uci.get('nikki_dash', 'main', 'session_timeout') ?? '3600'),
 				wan_warning: mode == 'wan_https'
 			};
 		}
@@ -549,6 +550,7 @@ const methods = {
 			}
 
 			let uci = cursor();
+			uci.load('nikki');
 			let sid = req.args?.id;
 			if (sid && length(sid) > 0) {
 				if (!is_valid_section_id(sid) || uci.get('nikki', sid) != 'subscription') {
@@ -557,6 +559,10 @@ const methods = {
 				}
 			} else {
 				sid = uci.add('nikki', 'subscription');
+				if (!sid || length(sid) == 0) {
+					release_lock();
+					return err_res('UCI_WRITE_FAILED', 'Failed to allocate new UCI subscription section');
+				}
 			}
 
 			uci.set('nikki', sid, 'name', name);
@@ -565,7 +571,11 @@ const methods = {
 			else uci.delete('nikki', sid, 'info_url');
 			uci.set('nikki', sid, 'user_agent', ua);
 			uci.set('nikki', sid, 'prefer', prefer);
-			uci.commit('nikki');
+			if (!uci.commit('nikki')) {
+				uci.revert('nikki');
+				release_lock();
+				return err_res('UCI_COMMIT_FAILED', 'Failed to commit subscription to /etc/config/nikki');
+			}
 
 			release_lock();
 			return ok_res({

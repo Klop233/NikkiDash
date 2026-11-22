@@ -328,7 +328,15 @@ echo "$SAVED" | grep -q '"saved":true' || fail "Valid save failed: $SAVED"
 grep -q "keep_me_intact" /etc/config/nikki || fail "Unknown option was wiped on save!"
 grep -q "preserve_section" /etc/config/nikki || fail "Unknown section was wiped on save!"
 grep -q "top-secret-mihomo-token" /etc/config/nikki || fail "Secret was wiped when left blank!"
-pass "UCI save, secret masking, revision conflict, and unknown-field preservation verified"
+
+# Verify creating & deleting a brand-new subscription works (tests uci.load before uci.add!)
+SUB_NEW="$(rpc_call nikki-dash save_subscription '{"id":"","name":"CI_Sub","url":"https://example.invalid/sub2","user_agent":"clash.meta","prefer":"remote"}')"
+SUB_NEW_ID="$(printf '%s' "$SUB_NEW" | jsonfilter -e '@.result.id' 2>/dev/null || true)"
+[ -n "$SUB_NEW_ID" ] || fail "save_subscription failed to allocate new section id: $SUB_NEW"
+PROFS_CHK="$(rpc_call nikki-dash get_profiles '{}')"
+echo "$PROFS_CHK" | grep -q '"name":"CI_Sub"' || fail "Newly saved subscription missing from get_profiles: $PROFS_CHK"
+rpc_call nikki-dash delete_subscription "{\"id\":\"$SUB_NEW_ID\"}" | grep -q '"ok":true' || fail "Failed deleting test subscription"
+pass "UCI save, secret masking, revision conflict, unknown-field preservation, and new subscription CRUD verified"
 
 echo "=== 8. Verify chunked upload (>64 KiB YAML), path traversal, symlink, & redaction ==="
 # Chunked upload of ~78 KiB valid YAML profile (exceeds uhttpd's 64 KiB single-POST limit!)

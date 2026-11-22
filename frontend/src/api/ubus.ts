@@ -27,6 +27,95 @@ let reqCounter = 1;
 let onAuthExpired: (() => void) | null = null;
 let sessionProbeInFlight: Promise<boolean> | null = null;
 
+const SESSION_STORAGE_KEY = 'nikki_dash_session_v1';
+
+export interface StoredSession {
+  sid: string;
+  username: string;
+  isGuest: boolean;
+  isAdmin: boolean;
+  expiresAt: number;
+}
+
+export function saveStoredSession(sess: StoredSession, remember: boolean): void {
+  const serialized = JSON.stringify(sess);
+  try {
+    if (typeof sessionStorage !== 'undefined') {
+      sessionStorage.setItem(SESSION_STORAGE_KEY, serialized);
+    }
+  } catch {
+    // ignore storage errors
+  }
+  try {
+    if (typeof localStorage !== 'undefined') {
+      if (remember) {
+        localStorage.setItem(SESSION_STORAGE_KEY, serialized);
+      } else {
+        localStorage.removeItem(SESSION_STORAGE_KEY);
+      }
+    }
+  } catch {
+    // ignore storage errors
+  }
+}
+
+export function loadStoredSession(): StoredSession | null {
+  const tryParse = (raw: string | null): StoredSession | null => {
+    if (!raw) return null;
+    try {
+      const parsed = JSON.parse(raw) as Partial<StoredSession>;
+      if (
+        typeof parsed.sid === 'string' &&
+        parsed.sid.length === 32 &&
+        typeof parsed.username === 'string' &&
+        parsed.username.length > 0
+      ) {
+        return {
+          sid: parsed.sid,
+          username: parsed.username,
+          isGuest: Boolean(parsed.isGuest),
+          isAdmin: Boolean(parsed.isAdmin),
+          expiresAt: typeof parsed.expiresAt === 'number' ? parsed.expiresAt : Date.now() + 3600_000
+        };
+      }
+    } catch {
+      // corrupt payload
+    }
+    return null;
+  };
+
+  try {
+    if (typeof sessionStorage !== 'undefined') {
+      const s = tryParse(sessionStorage.getItem(SESSION_STORAGE_KEY));
+      if (s) return s;
+    }
+  } catch {
+    // ignore
+  }
+  try {
+    if (typeof localStorage !== 'undefined') {
+      const s = tryParse(localStorage.getItem(SESSION_STORAGE_KEY));
+      if (s) return s;
+    }
+  } catch {
+    // ignore
+  }
+  return null;
+}
+
+export function clearStoredSession(): void {
+  try {
+    if (typeof sessionStorage !== 'undefined') sessionStorage.removeItem(SESSION_STORAGE_KEY);
+  } catch {
+    // ignore
+  }
+  try {
+    if (typeof localStorage !== 'undefined') localStorage.removeItem(SESSION_STORAGE_KEY);
+  } catch {
+    // ignore
+  }
+}
+
 async function verifySessionStillAlive(sid: string): Promise<boolean> {
   if (!sid) return false;
   if (sessionProbeInFlight) return sessionProbeInFlight;
@@ -70,6 +159,7 @@ export function getSessionSid(): string {
 
 export function clearSessionSid(): void {
   memorySid = '';
+  clearStoredSession();
 }
 
 export function setAuthExpiredHandler(fn: (() => void) | null): void {

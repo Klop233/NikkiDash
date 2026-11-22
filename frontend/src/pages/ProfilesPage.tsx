@@ -17,6 +17,7 @@ export function ProfilesPage(props: {
   const [error, setError] = useState<string | null>(null);
 
   const [subModal, setSubModal] = useState<Partial<SubscriptionItem> | null>(null);
+  const [subFetchNow, setSubFetchNow] = useState(true);
   const [subSaving, setSubSaving] = useState(false);
 
   const [importOpen, setImportOpen] = useState(false);
@@ -94,12 +95,27 @@ export function ProfilesPage(props: {
         prefer: subModal.prefer || 'remote',
         revision: data?.revision || ''
       });
+      if (!res.id) {
+        throw new Error('保存订阅失败：路由器未返回有效的订阅 ID');
+      }
       if (res.http_warning) {
         props.notify('info', '提示：该订阅使用明文 HTTP，建议优先改用 HTTPS');
       }
-      props.notify('success', '订阅配置已保存');
+      const isNew = !subModal.id;
+      const shouldFetch = isNew && subFetchNow;
       setSubModal(null);
       await load();
+      if (shouldFetch) {
+        props.notify('success', '订阅已保存，正在后台拉取配置与流量信息...');
+        try {
+          const upd = await nikkiApi.updateSubscription(res.id, false, `sub_init_${res.id}_${Date.now()}`);
+          props.onTrackTask(upd.task);
+        } catch (updErr) {
+          props.notify('error', `订阅已保存，但触发拉取失败: ${(updErr as Error).message}`);
+        }
+      } else {
+        props.notify('success', '订阅配置已保存');
+      }
     } catch (err) {
       props.notify('error', (err as Error).message);
     } finally {
@@ -200,7 +216,10 @@ export function ProfilesPage(props: {
         <div class="row">
           <button
             class="btn btn-primary"
-            onClick={() => setSubModal({ name: '', url: '', info_url: '', user_agent: 'clash.meta', prefer: 'remote' })}
+            onClick={() => {
+              setSubFetchNow(true);
+              setSubModal({ name: '', url: '', info_url: '', user_agent: 'clash.meta', prefer: 'remote' });
+            }}
           >
             新增订阅
           </button>
@@ -425,6 +444,16 @@ export function ProfilesPage(props: {
                   </select>
                 </div>
               </div>
+              {!subModal.id && (
+                <label class="row" style={{ cursor: 'pointer', fontSize: '13px' }}>
+                  <input
+                    type="checkbox"
+                    checked={subFetchNow}
+                    onChange={(e) => setSubFetchNow((e.currentTarget as HTMLInputElement).checked)}
+                  />
+                  <span>保存后立即后台拉取订阅内容与流量信息</span>
+                </label>
+              )}
               <div class="modal-actions">
                 <button type="button" class="btn" onClick={() => setSubModal(null)} disabled={subSaving}>
                   取消

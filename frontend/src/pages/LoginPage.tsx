@@ -1,25 +1,32 @@
-import { useState } from 'preact/hooks';
+import { useEffect, useState } from 'preact/hooks';
 import { useI18n } from '../i18n';
 import type { AuthInfo } from '../api/types';
 
 export function LoginPage(props: {
   authInfo: AuthInfo | null;
   expiredNotice: boolean;
-  onLogin: (username: string, password: string) => Promise<void>;
+  onLogin: (username: string, password: string, remember: boolean) => Promise<void>;
   onGuestLogin: () => Promise<void>;
 }) {
   const { t } = useI18n();
   const [username, setUsername] = useState('root');
   const [password, setPassword] = useState('');
+  const [remember, setRemember] = useState(() => !(props.authInfo?.wan_warning ?? false));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (props.authInfo) {
+      setRemember(!props.authInfo.wan_warning);
+    }
+  }, [props.authInfo?.wan_warning]);
 
   const handleSubmit = async (e: Event) => {
     e.preventDefault();
     setError('');
     setBusy(true);
     try {
-      await props.onLogin(username.trim(), password);
+      await props.onLogin(username.trim(), password, remember);
     } catch (err) {
       setError((err as Error)?.message || t.login.failed);
     } finally {
@@ -48,7 +55,7 @@ export function LoginPage(props: {
           <div>
             <h1 style={{ margin: 0, fontSize: '20px' }}>{t.login.title}</h1>
             <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-              {t.appName} v{props.authInfo?.version || '0.3.0'}
+              {t.appName} v{props.authInfo?.version || '0.3.1'}
             </div>
           </div>
         </div>
@@ -91,6 +98,18 @@ export function LoginPage(props: {
               value={password}
               onInput={(e) => setPassword((e.currentTarget as HTMLInputElement).value)}
             />
+          </div>
+
+          <div class="field" style={{ gap: '3px' }}>
+            <label class="row" style={{ cursor: 'pointer', fontSize: '12.5px' }}>
+              <input
+                type="checkbox"
+                checked={remember}
+                onChange={(e) => setRemember((e.currentTarget as HTMLInputElement).checked)}
+              />
+              <span>{t.login.remember}</span>
+            </label>
+            <span class="field-hint">{t.login.rememberHint}</span>
           </div>
 
           <button class="btn btn-primary" type="submit" disabled={busy} style={{ width: '100%', padding: '10px' }}>
