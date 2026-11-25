@@ -307,7 +307,7 @@ export function RulesProvidersPage(props: {
                       <td>
                         <span class="badge">{p.vehicleType || p.type}</span>
                       </td>
-                      <td class="mono td-right">{p.proxies?.length ?? 0}</td>
+                      <td class="mono td-right">{p.count ?? p.proxies?.length ?? 0}</td>
                       <td class="mono" style={{ color: 'var(--text-muted)' }}>
                         {formatTimeAgo(p.updatedAt)}
                       </td>

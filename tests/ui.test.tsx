@@ -119,10 +119,11 @@ describe('NikkiDash UI components & XSS safety', () => {
     expect((container.querySelector('textarea') as HTMLTextAreaElement).value).toBe('log-level: debug\n');
   });
 
-  it('ProxiesPage only allows manual node selection on Selector groups, never URLTest/Fallback', async () => {
+  it('ProxiesPage keeps profile group order, switches Selector nodes, and never switches URLTest/Fallback groups', async () => {
     vi.spyOn(nikkiApi, 'getProxies').mockResolvedValue({
       ok: true,
       proxies: {
+        GLOBAL: { name: 'GLOBAL', type: 'Selector', now: 'ManualGroup', all: ['ManualGroup', 'AutoGroup'] },
         AutoGroup: { name: 'AutoGroup', type: 'URLTest', now: 'HK-1', all: ['HK-1', 'JP-1'] },
         ManualGroup: { name: 'ManualGroup', type: 'Selector', now: 'HK-1', all: ['HK-1', 'JP-1'] },
         'HK-1': { name: 'HK-1', type: 'Shadowsocks', history: [] },
@@ -132,16 +133,21 @@ describe('NikkiDash UI components & XSS safety', () => {
     });
     const selSpy = vi.spyOn(nikkiApi, 'selectProxy').mockResolvedValue({ ok: true });
 
-    const { findByText, getAllByText } = render(<ProxiesPage running={true} notify={vi.fn()} />);
-    await findByText('AutoGroup');
+    const { findAllByRole } = render(<ProxiesPage running={true} notify={vi.fn()} />);
+    const tabs = await findAllByRole('tab');
+    // Order follows GLOBAL.all (profile order), not alphabetical / type
+    expect(tabs.map((t) => t.querySelector('.group-tab-name')?.textContent)).toEqual(['ManualGroup', 'AutoGroup']);
 
-    // ManualGroup comes first (Selector sorted before URLTest), AutoGroup second
-    const jpNodes = getAllByText('JP-1');
-    fireEvent.click(jpNodes[1]); // AutoGroup -> must NOT call selectProxy
-    expect(selSpy).not.toHaveBeenCalled();
-
-    fireEvent.click(jpNodes[0]); // ManualGroup -> MUST call selectProxy
+    // First group (Selector) is shown by default: clicking a node MUST call selectProxy
+    fireEvent.click(document.querySelector('.node-grid .node-card[title*="切换到 JP-1"]') as HTMLElement);
     await waitFor(() => expect(selSpy).toHaveBeenCalledWith('ManualGroup', 'JP-1'));
+
+    // Switch to URLTest group: clicking a node must NOT call selectProxy
+    selSpy.mockClear();
+    fireEvent.click(tabs[1]);
+    await waitFor(() => expect(tabs[1].getAttribute('aria-selected')).toBe('true'));
+    fireEvent.click(document.querySelector('.node-grid .node-card[title*="URLTest"]') as HTMLElement);
+    expect(selSpy).not.toHaveBeenCalled();
   });
 
   it('OverviewPage displays domestic IP, overseas IP, ISP type, fraud score and service connectivity', async () => {

@@ -492,7 +492,7 @@ export function App() {
           />
         )}
 
-        {page === 'proxies' && <ProxiesPage running={status?.running ?? false} notify={notify} />}
+        {page === 'proxies' && <ProxiesPage running={status?.running ?? false} mode={status?.mode} notify={notify} />}
 
         {page === 'connections' && <ConnectionsPage running={status?.running ?? false} notify={notify} />}
 

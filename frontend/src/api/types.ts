@@ -213,6 +213,7 @@ export interface ProxyNode {
   all?: string[];
   udp?: boolean;
   alive?: boolean;
+  hidden?: boolean;
   history?: Array<{ time: string; delay: number }>;
 }
 
@@ -221,6 +222,7 @@ export interface ProxyProvider {
   type: string;
   vehicleType?: string;
   updatedAt?: string;
+  count?: number;
   proxies?: ProxyNode[];
   subscriptionInfo?: {
     Upload?: number;

@@ -81,6 +81,24 @@ function get_nikki_service_state() {
 	};
 }
 
+function slim_providers(map) {
+	let out = {};
+	if (type(map) != 'object') return out;
+	for (let pname in map) {
+		let pv = map[pname];
+		if (type(pv) != 'object') continue;
+		out[pname] = {
+			name: pv.name ?? pname,
+			type: pv.type ?? '',
+			vehicleType: pv.vehicleType ?? '',
+			updatedAt: pv.updatedAt ?? '',
+			subscriptionInfo: pv.subscriptionInfo,
+			count: type(pv.proxies) == 'array' ? length(pv.proxies) : 0
+		};
+	}
+	return out;
+}
+
 const methods = {
 	/* Unauthenticated safe pre-login metadata */
 	auth_info: {
@@ -343,14 +361,36 @@ const methods = {
 	/* ==================== Mihomo Allowlisted Operations ==================== */
 
 	get_proxies: {
+		/*
+		 * ubus messages are capped near 1 MiB. Raw /proxies + /providers/proxies easily exceeds that
+		 * on large subscriptions (every node is duplicated), which made rpcd time out. Return a slim view:
+		 * keep config order hints (GLOBAL.all), only the last delay sample, and provider metadata without node bodies.
+		 */
 		call: function() {
 			let p = api_get_proxies();
 			if (!p.ok) return p;
+			let src = p.data?.proxies ?? {};
+			let proxies = {};
+			for (let name in src) {
+				let n = src[name];
+				if (type(n) != 'object') continue;
+				let o = { name: n.name ?? name, type: n.type ?? '' };
+				if (n.udp != null) o.udp = n.udp;
+				if (n.alive != null) o.alive = n.alive;
+				if (n.now != null) o.now = n.now;
+				if (type(n.all) == 'array') o.all = n.all;
+				if (n.hidden != null) o.hidden = n.hidden;
+				if (type(n.history) == 'array' && length(n.history) > 0) {
+					o.history = [ n.history[length(n.history) - 1] ];
+				} else {
+					o.history = [];
+				}
+				proxies[name] = o;
+			}
+
 			let prov = api_get_proxy_providers();
-			return ok_res({
-				proxies: p.data?.proxies ?? {},
-				providers: prov.ok ? (prov.data?.providers ?? {}) : {}
-			});
+			let providers = prov.ok ? slim_providers(prov.data?.providers) : {};
+			return ok_res({ proxies: proxies, providers: providers });
 		}
 	},
 
@@ -390,11 +430,15 @@ const methods = {
 		call: function() {
 			let r = api_get_connections();
 			if (!r.ok) return r;
+			let all = type(r.data?.connections) == 'array' ? r.data.connections : [];
+			// Cap payload below ubus message limit
+			let capped = length(all) > 600 ? slice(all, length(all) - 600) : all;
 			return ok_res({
 				upload_total: r.data?.uploadTotal ?? 0,
 				download_total: r.data?.downloadTotal ?? 0,
 				memory: r.data?.memory ?? 0,
-				connections: type(r.data?.connections) == 'array' ? r.data.connections : []
+				total_count: length(all),
+				connections: capped
 			});
 		}
 	},
@@ -421,7 +465,7 @@ const methods = {
 			return ok_res({
 				rules: rules.data?.rules ?? [],
 				rule_providers: rprov.ok ? (rprov.data?.providers ?? {}) : {},
-				proxy_providers: pprov.ok ? (pprov.data?.providers ?? {}) : {}
+				proxy_providers: pprov.ok ? slim_providers(pprov.data?.providers) : {}
 			});
 		}
 	},

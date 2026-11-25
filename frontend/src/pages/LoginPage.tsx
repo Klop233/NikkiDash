@@ -54,7 +54,7 @@ export function LoginPage(props: {
         <div class="login-brand-bar">
           <span class="brand-wordmark">{t.appName}</span>
           <span class="brand-sep" aria-hidden="true" />
-          <span class="brand-sub mono">v{props.authInfo?.version || '0.5.0'}</span>
+          <span class="brand-sub mono">v{props.authInfo?.version || '0.6.0'}</span>
         </div>
 
         <div class="login-body">

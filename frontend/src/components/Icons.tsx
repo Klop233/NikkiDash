@@ -195,6 +195,24 @@ export const IconSuccess = ({ className }: Props) =>
     className
   );
 
+export const IconCheck = ({ className }: Props) =>
+  svg(
+    <>
+      <path d="M4.5 10.5l3.5 3.5 7.5-8" />
+    </>,
+    className,
+    16
+  );
+
+export const IconBolt = ({ className }: Props) =>
+  svg(
+    <>
+      <path d="M10.75 2.75L4.5 11h5.25l-.75 6.25 6.5-8.25h-5.25z" />
+    </>,
+    className,
+    16
+  );
+
 export const IconChevronLeft = ({ className }: Props) =>
   svg(
     <>
