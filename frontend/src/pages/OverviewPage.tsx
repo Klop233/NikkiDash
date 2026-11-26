@@ -73,7 +73,7 @@ export function OverviewPage(props: {
   busyAction?: boolean;
   onRefreshStatus: () => void;
   onToggleService: (next: boolean) => void;
-  onServiceAction: (act: 'restart' | 'reload') => void;
+  onServiceAction: (act: 'restart' | 'reload' | 'enable' | 'disable') => void;
   onModeChange: (mode: ProxyMode) => void;
   onNavigate: (page: 'proxies' | 'profiles' | 'logs' | 'onboarding' | 'settings') => void;
   onTrackTask: (task: AsyncTask) => void;
@@ -228,6 +228,22 @@ export function OverviewPage(props: {
           <p class="page-desc">实时监控 Nikki 透明代理状态、出口 IP 纯净度、服务连通性与策略组</p>
         </div>
         <div class="row" style={{ gap: '12px' }}>
+          <label class="switch" title="路由器重启后自动启动 Nikki">
+            <input
+              type="checkbox"
+              checked={st.autostart === true}
+              disabled={props.busyAction}
+              aria-label="Nikki 开机自启"
+              onChange={(e) => {
+                const target = e.currentTarget as HTMLInputElement;
+                const desired = target.checked;
+                target.checked = st.autostart === true;
+                props.onServiceAction(desired ? 'enable' : 'disable');
+              }}
+            />
+            <span class="switch-track" />
+            <span>开机自启</span>
+          </label>
           <button
             type="button"
             class="btn"

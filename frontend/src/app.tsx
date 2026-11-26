@@ -302,12 +302,19 @@ export function App() {
     }
   );
 
-  const runServiceAction = async (act: 'start' | 'stop' | 'restart' | 'reload') => {
+  const runServiceAction = async (act: 'start' | 'stop' | 'restart' | 'reload' | 'enable' | 'disable') => {
     setBusyAction(true);
     try {
       const res = await nikkiApi.serviceAction(act, `svc_${act}_${Math.floor(Date.now() / 3000)}`);
       setActiveTask(res.task);
-      const labels: Record<string, string> = { start: '启动', stop: '停止', restart: '重启', reload: '重载' };
+      const labels: Record<string, string> = {
+        start: '启动',
+        stop: '停止',
+        restart: '重启',
+        reload: '重载',
+        enable: '开启开机自启',
+        disable: '关闭开机自启'
+      };
       notify('info', `已提交 Nikki ${labels[act] || act}任务...`);
     } catch (err) {
       notify('error', (err as Error).message);

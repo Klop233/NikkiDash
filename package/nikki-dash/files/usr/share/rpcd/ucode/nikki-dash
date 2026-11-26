@@ -168,6 +168,7 @@ const methods = {
 				pid: svc.pid,
 				uptime: svc.uptime,
 				enabled: uci.get('nikki', 'config', 'enabled') == '1',
+				autostart: (access('/etc/init.d/nikki', 'x') && exec_argv(['/etc/init.d/nikki', 'enabled']).code == 0),
 				profile: uci.get('nikki', 'config', 'profile') ?? '',
 				core_only: uci.get('nikki', 'config', 'core_only') == '1',
 				proxy_enabled: uci.get('nikki', 'proxy', 'enabled') == '1',

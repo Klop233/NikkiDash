@@ -111,6 +111,7 @@ export interface StatusResponse {
   pid: number | null;
   uptime: number;
   enabled: boolean;
+  autostart?: boolean;
   profile: string;
   core_only: boolean;
   proxy_enabled: boolean;
