@@ -77,6 +77,7 @@ export function App() {
 
   const [page, setPageState] = useState<PageId>(readHashPage);
   const [yamlTarget, setYamlTarget] = useState<{ category: string; name: string } | null>(null);
+  const [targetProxyGroup, setTargetProxyGroup] = useState<string | null>(null);
   const [lang, setLangState] = useState<LangCode>(() => readStoredLang() || 'zh-CN');
   const { theme, resolvedTheme, setTheme, toggleTheme } = useTheme('system');
 
@@ -97,6 +98,21 @@ export function App() {
     }
   }, []);
 
+  const openProxyGroup = useCallback(
+    (groupName: string) => {
+      setTargetProxyGroup(groupName);
+      try {
+        if (typeof localStorage !== 'undefined') {
+          localStorage.setItem('nikki_dash_proxy_group', groupName);
+        }
+      } catch {
+        // ignore
+      }
+      setPage('proxies');
+    },
+    [setPage]
+  );
+
   const setLang = useCallback((next: LangCode) => {
     setLangState(next);
     try {
@@ -112,6 +128,33 @@ export function App() {
     window.addEventListener('hashchange', onHash);
     return () => window.removeEventListener('hashchange', onHash);
   }, []);
+
+  // Global "/" shortcut to focus the current page's search box (FlClash-style quick search)
+  useEffect(() => {
+    if (typeof window === 'undefined' || !session) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== '/' || e.ctrlKey || e.metaKey || e.altKey) return;
+      const active = document.activeElement as HTMLElement | null;
+      if (
+        active &&
+        (active.tagName === 'INPUT' ||
+          active.tagName === 'TEXTAREA' ||
+          active.tagName === 'SELECT' ||
+          active.isContentEditable)
+      ) {
+        return;
+      }
+      if (document.querySelector('.modal-overlay')) return;
+      const searchInput = document.querySelector('main input[type="search"]') as HTMLInputElement | null;
+      if (searchInput) {
+        e.preventDefault();
+        searchInput.focus();
+        searchInput.select();
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [session]);
 
   const notify = useCallback((kind: 'success' | 'error' | 'info', message: string) => {
     const id = toastSeq++;
@@ -345,6 +388,19 @@ export function App() {
     }
   };
 
+  const handleQuickUpdateSubscription = useCallback(
+    async (subId: string) => {
+      try {
+        const res = await nikkiApi.updateSubscription(subId, true, `sub_${subId}_${Math.floor(Date.now() / 5000)}`);
+        setActiveTask(res.task);
+        notify('info', '已开始后台更新当前订阅...');
+      } catch (err) {
+        notify('error', (err as Error).message);
+      }
+    },
+    [notify]
+  );
+
   const handleLogout = async () => {
     await logoutSession();
     setSession(null);
@@ -487,6 +543,7 @@ export function App() {
             capabilities={capabilities}
             status={status}
             statusError={statusError}
+            profiles={profiles}
             profileDisplayName={friendlyProfileName}
             busyAction={busyAction || taskInFlight}
             onRefreshStatus={refreshStatus}
@@ -494,12 +551,22 @@ export function App() {
             onServiceAction={(a) => void runServiceAction(a)}
             onModeChange={(m) => void handleModeChange(m)}
             onNavigate={(p) => setPage(p)}
+            onOpenProxyGroup={openProxyGroup}
+            onUpdateSubscription={(id) => void handleQuickUpdateSubscription(id)}
             onTrackTask={setActiveTask}
             notify={notify}
           />
         )}
 
-        {page === 'proxies' && <ProxiesPage running={status?.running ?? false} mode={status?.mode} notify={notify} />}
+        {page === 'proxies' && (
+          <ProxiesPage
+            running={status?.running ?? false}
+            mode={status?.mode}
+            initialGroup={targetProxyGroup}
+            onConsumeInitialGroup={() => setTargetProxyGroup(null)}
+            notify={notify}
+          />
+        )}
 
         {page === 'connections' && <ConnectionsPage running={status?.running ?? false} notify={notify} />}
 

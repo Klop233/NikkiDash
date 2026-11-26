@@ -16,7 +16,7 @@ import {
 	resolve_controller, controller_public_info, api_version, api_get_configs,
 	api_set_mode, api_get_proxies, api_get_proxy_providers, api_select_proxy,
 	api_test_delay, api_get_connections, api_close_connection,
-	api_close_all_connections, api_get_rules, api_get_rule_providers, api_update_provider
+	api_close_all_connections, api_flush_fakeip, api_get_rules, api_get_rule_providers, api_update_provider
 } from '/usr/share/nikki-dash/lib/mihomo.uc';
 import {
 	list_catalog, read_managed_file, save_managed_file, list_file_backups,
@@ -99,6 +99,48 @@ function slim_providers(map) {
 	return out;
 }
 
+function is_nikki_autostart_enabled() {
+	let rc = lsdir('/etc/rc.d');
+	if (type(rc) != 'array') return false;
+	for (let name in rc) {
+		if (match(name, /^S[0-9]+nikki$/)) return true;
+	}
+	return false;
+}
+
+function get_node_last_delay(node) {
+	if (type(node) != 'object' || type(node.history) != 'array' || length(node.history) == 0) {
+		return null;
+	}
+	let last = node.history[length(node.history) - 1];
+	if (type(last) == 'object' && (type(last.delay) == 'int' || type(last.delay) == 'double')) {
+		return int(last.delay);
+	}
+	return null;
+}
+
+function resolve_leaf_info(pmap, start_name) {
+	let cur_name = start_name;
+	let visited = {};
+	let leaf_name = start_name ?? '';
+	let delay = null;
+	for (let i = 0; i < 6; i++) {
+		if (type(cur_name) != 'string' || length(cur_name) == 0 || visited[cur_name]) break;
+		visited[cur_name] = true;
+		let node = pmap[cur_name];
+		if (type(node) != 'object') break;
+		leaf_name = cur_name;
+		let d = get_node_last_delay(node);
+		if (d != null) delay = d;
+		if (type(node.now) == 'string' && length(node.now) > 0 && type(node.all) == 'array') {
+			cur_name = node.now;
+		} else {
+			break;
+		}
+	}
+	return { leaf: leaf_name, delay: delay };
+}
+
 const methods = {
 	/* Unauthenticated safe pre-login metadata */
 	auth_info: {
@@ -168,7 +210,7 @@ const methods = {
 				pid: svc.pid,
 				uptime: svc.uptime,
 				enabled: uci.get('nikki', 'config', 'enabled') == '1',
-				autostart: (access('/etc/init.d/nikki', 'x') && exec_argv(['/etc/init.d/nikki', 'enabled']).code == 0),
+				autostart: is_nikki_autostart_enabled(),
 				profile: uci.get('nikki', 'config', 'profile') ?? '',
 				core_only: uci.get('nikki', 'config', 'core_only') == '1',
 				proxy_enabled: uci.get('nikki', 'proxy', 'enabled') == '1',
@@ -211,16 +253,32 @@ const methods = {
 			let groups = [];
 			if (proxies.ok && type(proxies.data?.proxies) == 'object') {
 				let pmap = proxies.data.proxies;
-				for (let gname in pmap) {
+				let seen = {};
+				let append_group = function(gname) {
+					if (gname == 'GLOBAL' || seen[gname]) return;
 					let p = pmap[gname];
-					if (p && type(p.all) == 'array' && gname != 'GLOBAL') {
-						push(groups, {
-							name: gname,
-							type: p.type ?? '',
-							now: p.now ?? '',
-							count: length(p.all)
-						});
+					if (type(p) != 'object' || type(p.all) != 'array' || length(p.all) == 0 || p.hidden == true) return;
+					seen[gname] = true;
+					let leaf_info = resolve_leaf_info(pmap, p.now ?? '');
+					push(groups, {
+						name: gname,
+						type: p.type ?? '',
+						now: p.now ?? '',
+						leaf_now: (leaf_info.leaf != (p.now ?? '')) ? leaf_info.leaf : '',
+						now_delay: leaf_info.delay,
+						selectable: p.type == 'Selector',
+						count: length(p.all)
+					});
+				};
+				// Strictly follow profile proxy-groups order via GLOBAL.all
+				let global_all = pmap?.GLOBAL?.all;
+				if (type(global_all) == 'array') {
+					for (let gname in global_all) {
+						append_group(gname);
 					}
+				}
+				for (let gname in pmap) {
+					append_group(gname);
 				}
 			}
 
@@ -454,6 +512,12 @@ const methods = {
 	close_all_connections: {
 		call: function() {
 			return api_close_all_connections();
+		}
+	},
+
+	flush_fakeip: {
+		call: function() {
+			return api_flush_fakeip();
 		}
 	},
 

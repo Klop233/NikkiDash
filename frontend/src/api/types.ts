@@ -139,7 +139,15 @@ export interface OverviewMetricsResponse {
   download_total: number;
   memory: number;
   connection_count: number;
-  groups: Array<{ name: string; type: string; now: string; count: number }>;
+  groups: Array<{
+    name: string;
+    type: string;
+    now: string;
+    leaf_now?: string;
+    now_delay?: number | null;
+    selectable?: boolean;
+    count: number;
+  }>;
   timestamp: number;
   error?: string;
   error_code?: string;

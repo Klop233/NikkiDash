@@ -1,16 +1,23 @@
-import { useCallback, useEffect, useRef, useState } from 'preact/hooks';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { nikkiApi } from '../api/nikki';
 import { usePolling } from '../hooks/usePolling';
 import { TrafficChart } from '../components/TrafficChart';
 import { StateView } from '../components/StateView';
 import { ConfirmModal } from '../components/ConfirmModal';
 import { IconError, IconWarning } from '../components/Icons';
-import { formatBytes, formatDuration } from '../utils/format';
+import {
+  delayColorClass,
+  formatBytes,
+  formatDuration,
+  formatExpireCountdown,
+  parseFormattedSize
+} from '../utils/format';
 import type {
   AsyncTask,
   CapabilitiesResponse,
   NetworkProbeResponse,
   OverviewMetricsResponse,
+  ProfilesResponse,
   ProxyMode,
   ServiceCheckItem,
   StatusResponse
@@ -65,17 +72,34 @@ function routeModeLabel(mode?: string): string {
   return '';
 }
 
+const GROUP_TYPE_LABEL: Record<string, string> = {
+  Selector: '手动选择',
+  URLTest: '自动测速',
+  Fallback: '故障转移',
+  LoadBalance: '负载均衡',
+  Relay: '链式代理'
+};
+
+const MODE_OPTIONS: Array<{ id: ProxyMode; title: string; desc: string }> = [
+  { id: 'rule', title: '规则模式', desc: '按分流规则智能路由' },
+  { id: 'global', title: '全局模式', desc: '全部流量走全局出口' },
+  { id: 'direct', title: '直连模式', desc: '跳过代理全部直连' }
+];
+
 export function OverviewPage(props: {
   capabilities?: CapabilitiesResponse | null;
   status: StatusResponse | null;
   statusError: string | null;
+  profiles?: ProfilesResponse | null;
   profileDisplayName?: string;
   busyAction?: boolean;
   onRefreshStatus: () => void;
   onToggleService: (next: boolean) => void;
   onServiceAction: (act: 'restart' | 'reload' | 'enable' | 'disable') => void;
   onModeChange: (mode: ProxyMode) => void;
-  onNavigate: (page: 'proxies' | 'profiles' | 'logs' | 'onboarding' | 'settings') => void;
+  onNavigate: (page: 'proxies' | 'connections' | 'profiles' | 'logs' | 'onboarding' | 'settings') => void;
+  onOpenProxyGroup?: (groupName: string) => void;
+  onUpdateSubscription?: (subId: string) => void;
   onTrackTask: (task: AsyncTask) => void;
   notify: (kind: 'success' | 'error' | 'info', msg: string) => void;
 }) {
@@ -88,6 +112,7 @@ export function OverviewPage(props: {
   const prevRef = useRef<{ up: number; down: number; ts: number } | null>(null);
   const [fixModal, setFixModal] = useState(false);
   const [fixing, setFixing] = useState(false);
+  const [flushingFakeIp, setFlushingFakeIp] = useState(false);
 
   const [probe, setProbe] = useState<NetworkProbeResponse | null>(null);
   const [probeErr, setProbeErr] = useState<string | null>(null);
@@ -182,10 +207,33 @@ export function OverviewPage(props: {
     { intervalMs: 900, enabled: probeRunning }
   );
 
+  const activeSub = useMemo(() => {
+    const subs = props.profiles?.subscriptions || [];
+    if (subs.length === 0) return null;
+    const raw = props.status?.profile || props.profiles?.active_profile || '';
+    if (raw.startsWith('subscription:')) {
+      const id = raw.slice('subscription:'.length);
+      return subs.find((s) => s.id === id) || null;
+    }
+    return subs.find((s) => s.active) || null;
+  }, [props.profiles, props.status?.profile]);
+
   const handleCopyIp = (ip?: string) => {
     if (!ip) return;
     void navigator.clipboard?.writeText(ip);
     props.notify('success', `已复制 IP：${ip}`);
+  };
+
+  const handleFlushFakeIp = async () => {
+    setFlushingFakeIp(true);
+    try {
+      await nikkiApi.flushFakeIp();
+      props.notify('success', '已清空 Mihomo Fake-IP 缓存');
+    } catch (err) {
+      props.notify('error', `清空 Fake-IP 失败：${(err as Error).message}`);
+    } finally {
+      setFlushingFakeIp(false);
+    }
   };
 
   const handleFixBind = async () => {
@@ -199,6 +247,14 @@ export function OverviewPage(props: {
       props.notify('error', (err as Error).message);
     } finally {
       setFixing(false);
+    }
+  };
+
+  const handleOpenGroup = (groupName: string) => {
+    if (props.onOpenProxyGroup) {
+      props.onOpenProxyGroup(groupName);
+    } else {
+      props.onNavigate('proxies');
     }
   };
 
@@ -220,12 +276,22 @@ export function OverviewPage(props: {
   const ovServices = services.filter((s) => s.group === 'overseas');
   const okSvcCount = services.filter((s) => s.ok).length;
 
+  const subUsedBytes = parseFormattedSize(activeSub?.used);
+  const subTotalBytes = parseFormattedSize(activeSub?.total);
+  const subPct =
+    subUsedBytes !== null && subTotalBytes !== null && subTotalBytes > 0
+      ? Math.min(100, Math.round((subUsedBytes / subTotalBytes) * 100))
+      : null;
+  const subExpireCountdown = formatExpireCountdown(activeSub?.expire);
+  const subFillClass =
+    subPct === null ? '' : subPct >= 95 ? 'progress-fill-danger' : subPct >= 80 ? 'progress-fill-warning' : '';
+
   return (
     <div>
       <div class="page-header">
         <div>
           <h1 class="page-title">运行总览</h1>
-          <p class="page-desc">实时监控 Nikki 透明代理状态、出口 IP 纯净度、服务连通性与策略组</p>
+          <p class="page-desc">实时监控 Nikki 透明代理状态、出站模式、策略组、出口 IP 纯净度与服务连通性</p>
         </div>
         <div class="row" style={{ gap: '12px' }}>
           <label class="switch" title="路由器重启后自动启动 Nikki">
@@ -373,6 +439,208 @@ export function OverviewPage(props: {
           </div>
         </div>
       </div>
+
+      {/* FlClash Quick Row: Outbound Mode + Subscription Quota & Quick Maintenance */}
+      <div class="grid-2" style={{ marginTop: '24px' }}>
+        <section class="card" aria-label="出站模式">
+          <div class="card-header">
+            <h2 class="card-title">出站模式</h2>
+            <span class="badge badge-accent">
+              当前：{MODE_OPTIONS.find((m) => m.id === st.mode)?.title || st.mode}
+            </span>
+          </div>
+          <div class="mode-grid" role="group" aria-label="选择出站模式">
+            {MODE_OPTIONS.map((m) => {
+              const active = st.mode === m.id;
+              return (
+                <button
+                  key={m.id}
+                  type="button"
+                  class={`mode-option ${active ? 'active' : ''}`}
+                  aria-pressed={active}
+                  disabled={!st.running || props.busyAction}
+                  onClick={() => props.onModeChange(m.id)}
+                >
+                  <span class="mode-option-title">{m.title}</span>
+                  <span class="mode-option-desc">{m.desc}</span>
+                </button>
+              );
+            })}
+          </div>
+        </section>
+
+        <section class="card" aria-label="当前订阅与快捷维护">
+          <div class="card-header">
+            <div class="row" style={{ gap: '8px' }}>
+              <h2 class="card-title">{activeSub ? activeSub.name : '当前配置与快捷维护'}</h2>
+              {subExpireCountdown && <span class={`badge ${subExpireCountdown.badgeClass}`}>{subExpireCountdown.text}</span>}
+            </div>
+            <div class="row" style={{ gap: '8px' }}>
+              {activeSub && props.onUpdateSubscription && (
+                <button
+                  type="button"
+                  class="btn btn-sm"
+                  disabled={props.busyAction}
+                  onClick={() => props.onUpdateSubscription!(activeSub.id)}
+                >
+                  更新订阅
+                </button>
+              )}
+              <button type="button" class="btn btn-sm btn-ghost" onClick={() => props.onNavigate('profiles')}>
+                管理配置
+              </button>
+            </div>
+          </div>
+
+          {activeSub ? (
+            <div class="stack" style={{ gap: '10px' }}>
+              <div class="row-between" style={{ fontSize: '14px', lineHeight: '22px' }}>
+                <span class="mono">
+                  已用 {activeSub.used || '—'} / {activeSub.total || '—'}
+                </span>
+                <span class="mono" style={{ color: 'var(--text-muted)' }}>
+                  剩余 {activeSub.avaliable || '—'}
+                  {subPct !== null ? ` (${100 - subPct}%)` : ''}
+                </span>
+              </div>
+              {subPct !== null && (
+                <div
+                  class="progress-bar"
+                  role="progressbar"
+                  aria-label="订阅流量已用比例"
+                  aria-valuenow={subPct}
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                >
+                  <div class={`progress-fill ${subFillClass}`} style={{ width: `${subPct}%` }} />
+                </div>
+              )}
+              <div class="row-between" style={{ fontSize: '14px', color: 'var(--text-muted)' }}>
+                <span>到期：<span class="mono">{activeSub.expire || '长期 / 未知'}</span></span>
+                <span>更新：<span class="mono">{activeSub.update || '未记录'}</span></span>
+              </div>
+            </div>
+          ) : (
+            <div style={{ fontSize: '14px', lineHeight: '22px', color: 'var(--text-muted)' }}>
+              当前使用配置：<span style={{ color: 'var(--text)', fontWeight: 500 }}>{profLabel}</span>
+            </div>
+          )}
+
+          <div
+            class="row"
+            style={{
+              marginTop: '14px',
+              paddingTop: '12px',
+              borderTop: '1px solid var(--border)',
+              gap: '8px'
+            }}
+          >
+            <button
+              type="button"
+              class="btn btn-sm"
+              disabled={!st.running || flushingFakeIp}
+              onClick={() => void handleFlushFakeIp()}
+            >
+              {flushingFakeIp ? (
+                <>
+                  <span class="spinner" /> 清理中...
+                </>
+              ) : (
+                '清空 Fake-IP 缓存'
+              )}
+            </button>
+            <button
+              type="button"
+              class="btn btn-sm"
+              disabled={!st.running}
+              onClick={() => props.onNavigate('connections')}
+            >
+              活跃连接 ({st.running ? (metrics?.connection_count ?? 0) : 0})
+            </button>
+            <button type="button" class="btn btn-sm btn-ghost" onClick={() => props.onNavigate('proxies')}>
+              选择节点
+            </button>
+          </div>
+        </section>
+      </div>
+
+      {/* Strategy Groups Quick Entry (profile order + live delay + direct group jump) */}
+      <section class="card" style={{ marginTop: '24px' }} aria-label="常用策略组快捷入口">
+        <div class="card-header">
+          <div class="row" style={{ gap: '8px' }}>
+            <h2 class="card-title">常用策略组快捷入口</h2>
+            {st.running && (metrics?.groups?.length ?? 0) > 0 && (
+              <span class="badge mono">{metrics!.groups.length} 组</span>
+            )}
+          </div>
+          <button type="button" class="btn" onClick={() => props.onNavigate('proxies')}>
+            管理全部节点
+          </button>
+        </div>
+        {!st.running ? (
+          <p style={{ margin: 0, fontSize: '16px', lineHeight: '26px', color: 'var(--text)' }}>
+            Nikki 尚未启动。你可以前往{' '}
+            <a
+              href="#profiles"
+              onClick={(e) => {
+                e.preventDefault();
+                props.onNavigate('profiles');
+              }}
+            >
+              配置与订阅
+            </a>{' '}
+            确认配置后，点击右上角「启动代理」。
+          </p>
+        ) : (metrics?.groups?.length ?? 0) === 0 ? (
+          <p style={{ margin: 0, fontSize: '16px', lineHeight: '26px', color: 'var(--text-muted)' }}>当前没有可用的策略组</p>
+        ) : (
+          <div class="node-grid">
+            {metrics!.groups.map((g) => {
+              const hasDelay = typeof g.now_delay === 'number';
+              const delayBadgeCls = hasDelay ? delayColorClass(g.now_delay ?? 0) : '';
+              const delayLabel = hasDelay ? ((g.now_delay ?? 0) > 0 ? `${g.now_delay} ms` : '超时') : null;
+              return (
+                <button
+                  key={g.name}
+                  type="button"
+                  class="node-card"
+                  title={`进入策略组「${g.name}」切换节点`}
+                  onClick={() => handleOpenGroup(g.name)}
+                >
+                  <div class="row-between" style={{ width: '100%', flexWrap: 'nowrap' }}>
+                    <span class="node-name">{g.name}</span>
+                    <span class="badge">{GROUP_TYPE_LABEL[g.type] || g.type}</span>
+                  </div>
+                  <div class="node-meta">
+                    <span
+                      style={{
+                        color: 'var(--accent-text)',
+                        fontWeight: 500,
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap'
+                      }}
+                      title={g.leaf_now ? `${g.now} → ${g.leaf_now}` : g.now}
+                    >
+                      {g.now || '—'}
+                      {g.leaf_now ? ` → ${g.leaf_now}` : ''}
+                    </span>
+                    {delayLabel ? (
+                      <span class={`badge mono ${delayBadgeCls}`} style={{ flexShrink: 0 }}>
+                        {delayLabel}
+                      </span>
+                    ) : (
+                      <span class="mono" style={{ flexShrink: 0 }}>
+                        {g.count} 节点
+                      </span>
+                    )}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </section>
 
       {/* Exit IP, Fraud Score, ISP Type & Common Services Connectivity */}
       <section class="card" style={{ marginTop: '24px' }} aria-label="出口 IP 与网络质量">
@@ -676,57 +944,6 @@ export function OverviewPage(props: {
             </dd>
           </dl>
         </div>
-      </div>
-
-      {/* Strategy Groups Quick Entry */}
-      <div class="card" style={{ marginTop: '24px' }}>
-        <div class="card-header">
-          <h2 class="card-title">常用策略组快捷入口</h2>
-          <button type="button" class="btn" onClick={() => props.onNavigate('proxies')}>
-            管理全部节点
-          </button>
-        </div>
-        {!st.running ? (
-          <p style={{ margin: 0, fontSize: '16px', lineHeight: '26px', color: 'var(--text)' }}>
-            Nikki 尚未启动。你可以前往{' '}
-            <a
-              href="#profiles"
-              onClick={(e) => {
-                e.preventDefault();
-                props.onNavigate('profiles');
-              }}
-            >
-              配置与订阅
-            </a>{' '}
-            确认配置后，点击右上角「启动代理」。
-          </p>
-        ) : (metrics?.groups?.length ?? 0) === 0 ? (
-          <p style={{ margin: 0, fontSize: '16px', lineHeight: '26px', color: 'var(--text-muted)' }}>当前没有可用的策略组</p>
-        ) : (
-          <div class="node-grid">
-            {metrics!.groups.map((g) => (
-              <button
-                key={g.name}
-                type="button"
-                class="node-card"
-                onClick={() => props.onNavigate('proxies')}
-              >
-                <div class="row-between" style={{ width: '100%' }}>
-                  <span class="node-name">{g.name}</span>
-                  <span class="badge">{g.type}</span>
-                </div>
-                <div class="node-meta">
-                  <span style={{ color: 'var(--accent-text)', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {g.now || '—'}
-                  </span>
-                  <span class="mono" style={{ flexShrink: 0 }}>
-                    {g.count} 节点
-                  </span>
-                </div>
-              </button>
-            ))}
-          </div>
-        )}
       </div>
 
       <ConfirmModal

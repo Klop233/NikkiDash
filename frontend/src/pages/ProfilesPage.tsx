@@ -2,8 +2,8 @@ import { useCallback, useEffect, useState } from 'preact/hooks';
 import { nikkiApi } from '../api/nikki';
 import { StateView } from '../components/StateView';
 import { ConfirmModal } from '../components/ConfirmModal';
-import { IconPlus } from '../components/Icons';
-import { formatBytes, parseFormattedSize } from '../utils/format';
+import { IconCopy, IconPlus } from '../components/Icons';
+import { formatBytes, formatExpireCountdown, parseFormattedSize } from '../utils/format';
 import type { AsyncTask, ProfilesResponse, SubscriptionItem } from '../api/types';
 
 export function ProfilesPage(props: {
@@ -31,6 +31,7 @@ export function ProfilesPage(props: {
   const [fallbackProfile, setFallbackProfile] = useState('');
   const [forceStop, setForceStop] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [updatingAll, setUpdatingAll] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -132,6 +133,52 @@ export function ProfilesPage(props: {
     } catch (err) {
       props.notify('error', (err as Error).message);
     }
+  };
+
+  const handleUpdateAllSubs = async () => {
+    const subs = data?.subscriptions || [];
+    if (subs.length === 0 || updatingAll) return;
+    setUpdatingAll(true);
+    let okCount = 0;
+    let failCount = 0;
+    try {
+      for (const sub of subs) {
+        try {
+          const res = await nikkiApi.updateSubscription(sub.id, sub.active, `sub_all_${sub.id}_${Date.now()}`);
+          props.onTrackTask(res.task);
+          // Poll sequentially so we respect the router's single write lock
+          let done = false;
+          for (let i = 0; i < 25; i++) {
+            await new Promise((r) => window.setTimeout(r, 1200));
+            const st = await nikkiApi.getTask(res.task.id);
+            props.onTrackTask(st.task);
+            if (st.task.status !== 'queued' && st.task.status !== 'running') {
+              if (st.task.status === 'succeeded') okCount++;
+              else failCount++;
+              done = true;
+              break;
+            }
+          }
+          if (!done) failCount++;
+        } catch {
+          failCount++;
+        }
+      }
+      await load();
+      props.onRefreshStatus();
+      props.notify(
+        failCount === 0 ? 'success' : 'info',
+        `全部订阅更新完成：成功 ${okCount} 个${failCount > 0 ? `，失败 ${failCount} 个` : ''}`
+      );
+    } finally {
+      setUpdatingAll(false);
+    }
+  };
+
+  const handleCopySubUrl = (sub: SubscriptionItem) => {
+    if (!sub.url) return;
+    void navigator.clipboard?.writeText(sub.url);
+    props.notify('success', `已复制「${sub.name}」订阅链接`);
   };
 
   const handleSwitch = async (profileKey: string, applyNow: boolean) => {
@@ -236,9 +283,27 @@ export function ProfilesPage(props: {
       <section class="card" aria-label="远程订阅列表">
         <div class="card-header">
           <h2 class="card-title">远程订阅 ({data?.subscriptions.length ?? 0})</h2>
-          <button type="button" class="btn btn-ghost" onClick={() => void load()}>
-            刷新
-          </button>
+          <div class="row" style={{ gap: '8px' }}>
+            {(data?.subscriptions.length ?? 0) > 1 && (
+              <button
+                type="button"
+                class="btn btn-sm"
+                disabled={updatingAll}
+                onClick={() => void handleUpdateAllSubs()}
+              >
+                {updatingAll ? (
+                  <>
+                    <span class="spinner" /> 批量更新中...
+                  </>
+                ) : (
+                  '全部更新'
+                )}
+              </button>
+            )}
+            <button type="button" class="btn btn-ghost" onClick={() => void load()}>
+              刷新
+            </button>
+          </div>
         </div>
         {(data?.subscriptions.length ?? 0) === 0 ? (
           <p style={{ margin: 0, padding: '16px 0', fontSize: '16px', lineHeight: '26px', color: 'var(--text-muted)' }}>
@@ -253,6 +318,9 @@ export function ProfilesPage(props: {
                 usedBytes !== null && totalBytes !== null && totalBytes > 0
                   ? Math.min(100, Math.round((usedBytes / totalBytes) * 100))
                   : null;
+              const countdown = formatExpireCountdown(sub.expire);
+              const fillCls =
+                pct === null ? '' : pct >= 95 ? 'progress-fill-danger' : pct >= 80 ? 'progress-fill-warning' : '';
               return (
                 <div key={sub.id} class={`sub-card ${sub.active ? 'active' : ''}`}>
                   <div class="row-between" style={{ marginBottom: '12px' }}>
@@ -270,7 +338,10 @@ export function ProfilesPage(props: {
                       {sub.used || '—'} / {sub.total || '—'}（剩余 {sub.avaliable || '—'}）
                     </dd>
                     <dt class="kv-key">到期日期</dt>
-                    <dd class="kv-val mono">{sub.expire || '—'}</dd>
+                    <dd class="kv-val row" style={{ gap: '8px' }}>
+                      <span class="mono">{sub.expire || '—'}</span>
+                      {countdown && <span class={`badge ${countdown.badgeClass}`}>{countdown.text}</span>}
+                    </dd>
                     <dt class="kv-key">最后更新</dt>
                     <dd class="kv-val mono">{sub.update || '未拉取'}</dd>
                     <dt class="kv-key">本地缓存</dt>
@@ -280,7 +351,7 @@ export function ProfilesPage(props: {
                   {pct !== null && (
                     <div style={{ marginTop: '12px' }}>
                       <div class="progress-bar" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}>
-                        <div class="progress-fill" style={{ width: `${pct}%` }} />
+                        <div class={`progress-fill ${fillCls}`} style={{ width: `${pct}%` }} />
                       </div>
                     </div>
                   )}
@@ -295,12 +366,28 @@ export function ProfilesPage(props: {
                         启用并应用
                       </button>
                     )}
-                    <button type="button" class="btn btn-sm" onClick={() => void handleUpdateSub(sub.id)}>
+                    <button
+                      type="button"
+                      class="btn btn-sm"
+                      disabled={updatingAll}
+                      onClick={() => void handleUpdateSub(sub.id)}
+                    >
                       立即更新
                     </button>
                     <button type="button" class="btn btn-sm btn-ghost" onClick={() => setSubModal({ ...sub })}>
                       编辑
                     </button>
+                    {sub.url && (
+                      <button
+                        type="button"
+                        class="btn btn-sm btn-ghost"
+                        title="复制订阅 URL"
+                        onClick={() => handleCopySubUrl(sub)}
+                      >
+                        <IconCopy />
+                        复制链接
+                      </button>
+                    )}
                     {sub.file_exists && (
                       <button
                         type="button"

@@ -147,6 +147,7 @@ export const nikkiApi = {
         upload_total: number;
         download_total: number;
         memory: number;
+        total_count?: number;
         connections: ConnectionItem[];
       }>('nikki-dash', 'get_connections', {}, opts)
     ),
@@ -156,6 +157,9 @@ export const nikkiApi = {
 
   closeAllConnections: async () =>
     unwrap(await ubusCall<{ ok: boolean }>('nikki-dash', 'close_all_connections', {})),
+
+  flushFakeIp: async () =>
+    unwrap(await ubusCall<{ ok: boolean }>('nikki-dash', 'flush_fakeip', {})),
 
   getRules: async (opts?: CallOptions) =>
     unwrap(

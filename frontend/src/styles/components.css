@@ -1139,12 +1139,12 @@ input[type="radio"] {
 
 .group-tab {
   flex: 0 0 auto;
-  min-width: 132px;
-  max-width: 220px;
+  min-width: 148px;
+  max-width: 240px;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 2px;
+  gap: 4px;
   padding: var(--space-2) var(--space-4);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
@@ -1165,8 +1165,16 @@ input[type="radio"] {
   background: var(--accent-subtle);
 }
 
+.group-tab-head {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
 .group-tab-name {
-  max-width: 100%;
+  min-width: 0;
   font-size: 14px;
   line-height: 22px;
   font-weight: 500;
@@ -1179,6 +1187,26 @@ input[type="radio"] {
   color: var(--accent-text);
 }
 
+.group-tab-delay {
+  flex-shrink: 0;
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+.group-tab-delay.badge-green {
+  color: var(--success);
+}
+
+.group-tab-delay.badge-amber {
+  color: var(--warning);
+}
+
+.group-tab-delay.badge-red {
+  color: var(--danger);
+}
+
 .group-tab-now {
   max-width: 100%;
   font-size: 14px;
@@ -1187,6 +1215,196 @@ input[type="radio"] {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* FlClash-style Outbound Mode Cards on Overview */
+.mode-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+
+@media (max-width: 680px) {
+  .mode-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.mode-option {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--transition), border-color var(--transition);
+}
+
+.mode-option:hover:not(:disabled) {
+  background: var(--bg-hover);
+  border-color: var(--border-strong);
+}
+
+.mode-option.active {
+  border-color: var(--accent);
+  background: var(--accent-subtle);
+}
+
+.mode-option:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.mode-option-title {
+  font-size: 16px;
+  line-height: 24px;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.mode-option.active .mode-option-title {
+  color: var(--accent-text);
+}
+
+.mode-option-desc {
+  font-size: 14px;
+  line-height: 20px;
+  color: var(--text-muted);
+}
+
+/* Nested group jump link & locate highlight on ProxiesPage */
+.node-jump-btn {
+  flex-shrink: 0;
+  height: 24px;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+  color: var(--accent-text);
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background var(--transition), border-color var(--transition);
+}
+
+.node-jump-btn:hover {
+  background: var(--accent-subtle);
+  border-color: var(--accent);
+}
+
+@keyframes nd-locate {
+  0% {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+  100% {
+    outline: 2px solid transparent;
+    outline-offset: 4px;
+  }
+}
+
+.node-card.locate-flash {
+  animation: nd-locate 1.1s ease-out;
+}
+
+.toolbar-drawer {
+  padding: var(--space-3) var(--space-4);
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-hover);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.list-group-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.list-group-card + .list-group-card {
+  margin-top: var(--space-4);
+}
+
+.list-group-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  flex-wrap: wrap;
+}
+
+.list-group-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--control-height);
+  padding: 0 var(--space-2);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text);
+  font-size: 16px;
+  line-height: 24px;
+  font-weight: 500;
+  cursor: pointer;
+  text-align: left;
+}
+
+.list-group-toggle:hover {
+  background: var(--bg-hover);
+}
+
+.chevron-icon {
+  transition: transform var(--transition);
+  flex-shrink: 0;
+}
+
+.chevron-icon.collapsed {
+  transform: rotate(-90deg);
+}
+
+/* Connections quick filter bar & clickable cell filter */
+.filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-4) var(--space-3);
+}
+
+.chip.active {
+  border-color: var(--accent);
+  color: var(--accent-text);
+  background: var(--accent-subtle);
+  font-weight: 500;
+}
+
+.cell-filter-btn {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 3px;
+}
+
+.cell-filter-btn:hover {
+  color: var(--accent-text);
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 
 .node-check {

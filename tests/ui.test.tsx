@@ -125,29 +125,147 @@ describe('NikkiDash UI components & XSS safety', () => {
       proxies: {
         GLOBAL: { name: 'GLOBAL', type: 'Selector', now: 'ManualGroup', all: ['ManualGroup', 'AutoGroup'] },
         AutoGroup: { name: 'AutoGroup', type: 'URLTest', now: 'HK-1', all: ['HK-1', 'JP-1'] },
-        ManualGroup: { name: 'ManualGroup', type: 'Selector', now: 'HK-1', all: ['HK-1', 'JP-1'] },
-        'HK-1': { name: 'HK-1', type: 'Shadowsocks', history: [] },
-        'JP-1': { name: 'JP-1', type: 'Shadowsocks', history: [] }
+        ManualGroup: {
+          name: 'ManualGroup',
+          type: 'Selector',
+          now: 'HK-1',
+          all: ['剩余流量：408.73 GB', 'HK-1', 'JP-1', 'AutoGroup']
+        },
+        '剩余流量：408.73 GB': { name: '剩余流量：408.73 GB', type: 'Shadowsocks', history: [] },
+        'HK-1': { name: 'HK-1', type: 'Shadowsocks', history: [{ time: '2026-01-01T00:00:00Z', delay: 42 }] },
+        'JP-1': { name: 'JP-1', type: 'Shadowsocks', history: [{ time: '2026-01-01T00:00:00Z', delay: 88 }] }
       },
       providers: {}
     });
     const selSpy = vi.spyOn(nikkiApi, 'selectProxy').mockResolvedValue({ ok: true });
 
-    const { findAllByRole } = render(<ProxiesPage running={true} notify={vi.fn()} />);
+    const { findAllByRole, queryByText, getByText } = render(<ProxiesPage running={true} notify={vi.fn()} />);
     const tabs = await findAllByRole('tab');
     // Order follows GLOBAL.all (profile order), not alphabetical / type
     expect(tabs.map((t) => t.querySelector('.group-tab-name')?.textContent)).toEqual(['ManualGroup', 'AutoGroup']);
+
+    // Subscription banner info pseudo-nodes are hidden by default with a visible count
+    expect(queryByText('剩余流量：408.73 GB')).toBeNull();
+    expect(getByText(/隐藏信息节点 \(1\)/)).toBeTruthy();
 
     // First group (Selector) is shown by default: clicking a node MUST call selectProxy
     fireEvent.click(document.querySelector('.node-grid .node-card[title*="切换到 JP-1"]') as HTMLElement);
     await waitFor(() => expect(selSpy).toHaveBeenCalledWith('ManualGroup', 'JP-1'));
 
-    // Switch to URLTest group: clicking a node must NOT call selectProxy
+    // Nested strategy group card offers a quick jump button without triggering selection
     selSpy.mockClear();
-    fireEvent.click(tabs[1]);
+    fireEvent.click(document.querySelector('.node-jump-btn') as HTMLElement);
     await waitFor(() => expect(tabs[1].getAttribute('aria-selected')).toBe('true'));
+    expect(selSpy).not.toHaveBeenCalled();
+
+    // In URLTest group: clicking a node must NOT call selectProxy
     fireEvent.click(document.querySelector('.node-grid .node-card[title*="URLTest"]') as HTMLElement);
     expect(selSpy).not.toHaveBeenCalled();
+  });
+
+  it('OverviewPage displays outbound mode card, active subscription quota, and jumps directly to clicked strategy group', async () => {
+    vi.spyOn(nikkiApi, 'getNetworkProbe').mockResolvedValue({
+      ok: true,
+      status: 'done',
+      updated_at: Math.floor(Date.now() / 1000)
+    });
+    vi.spyOn(nikkiApi, 'getOverviewMetrics').mockResolvedValue({
+      ok: true,
+      mode: 'rule',
+      upload_total: 1024,
+      download_total: 2048,
+      memory: 12000000,
+      connection_count: 15,
+      groups: [
+        { name: '主代理', type: 'Selector', now: '香港自动', leaf_now: 'HK-01', now_delay: 52, selectable: true, count: 8 },
+        { name: '香港自动', type: 'URLTest', now: 'HK-01', now_delay: 64, selectable: false, count: 4 }
+      ],
+      timestamp: Math.floor(Date.now() / 1000)
+    });
+
+    const onOpenProxyGroup = vi.fn();
+    const onModeChange = vi.fn();
+
+    const { findByText, getByText } = render(
+      <OverviewPage
+        status={{
+          ok: true,
+          running: true,
+          pid: 1234,
+          uptime: 3600,
+          enabled: true,
+          autostart: true,
+          profile: 'subscription:sub1',
+          core_only: false,
+          proxy_enabled: true,
+          tcp_mode: 'redirect',
+          udp_mode: 'tproxy',
+          dns_mode: 'fake-ip',
+          mode: 'rule',
+          core_version: 'v1.19.32',
+          dash_version: '0.7.0',
+          revision: 'rev',
+          controller: {
+            configured: true,
+            source: 'run_config',
+            protocol: 'http',
+            listen_addr: '127.0.0.1:9090',
+            loopback_only: true,
+            exposed_warning: false,
+            has_secret: false,
+            reachable: true
+          },
+          health: { controller_ok: true, nft_hijack_ok: true, tun_up: false, conflicts: [] },
+          active_tasks: []
+        }}
+        statusError={null}
+        profiles={{
+          ok: true,
+          active_profile: 'subscription:sub1',
+          revision: 'rev',
+          files: [],
+          subscriptions: [
+            {
+              id: 'sub1',
+              name: 'DemoSub',
+              url: 'https://example.com/sub',
+              info_url: '',
+              user_agent: 'clash.meta',
+              prefer: 'remote',
+              expire: '2099-12-31',
+              upload: '1 GB',
+              download: '9 GB',
+              total: '100 GB',
+              used: '10 GB',
+              avaliable: '90 GB',
+              update: '2026-11-26',
+              success: '1',
+              file_exists: true,
+              file_size: 4096,
+              active: true
+            }
+          ]
+        }}
+        onRefreshStatus={vi.fn()}
+        onToggleService={vi.fn()}
+        onServiceAction={vi.fn()}
+        onModeChange={onModeChange}
+        onNavigate={vi.fn()}
+        onOpenProxyGroup={onOpenProxyGroup}
+        onTrackTask={vi.fn()}
+        notify={vi.fn()}
+      />
+    );
+
+    expect(await findByText('DemoSub')).toBeTruthy();
+    expect(await findByText('主代理')).toBeTruthy();
+    expect(await findByText('52 ms')).toBeTruthy();
+
+    fireEvent.click(getByText('全局模式'));
+    expect(onModeChange).toHaveBeenCalledWith('global');
+
+    fireEvent.click(getByText('主代理'));
+    expect(onOpenProxyGroup).toHaveBeenCalledWith('主代理');
   });
 
   it('OverviewPage displays domestic IP, overseas IP, ISP type, fraud score and service connectivity', async () => {

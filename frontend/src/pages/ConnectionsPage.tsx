@@ -9,11 +9,17 @@ import type { ConnectionItem } from '../api/types';
 
 const PAGE_SIZE = 50;
 
+function isDirectConnection(c: ConnectionItem): boolean {
+  const chains = c.chains || [];
+  return chains.some((ch) => ch === 'DIRECT');
+}
+
 export function ConnectionsPage(props: {
   running: boolean;
   notify: (kind: 'success' | 'error' | 'info', msg: string) => void;
 }) {
   const [conns, setConns] = useState<ConnectionItem[]>([]);
+  const [totalCount, setTotalCount] = useState(0);
   const [speeds, setSpeeds] = useState<Record<string, { down: number; up: number }>>({});
   const [totals, setTotals] = useState({ up: 0, down: 0, mem: 0 });
   const [loading, setLoading] = useState(true);
@@ -21,10 +27,12 @@ export function ConnectionsPage(props: {
   const [paused, setPaused] = useState(false);
   const [search, setSearch] = useState('');
   const [netFilter, setNetFilter] = useState<'all' | 'tcp' | 'udp'>('all');
+  const [routeFilter, setRouteFilter] = useState<'all' | 'proxy' | 'direct'>('all');
   const [sortBy, setSortBy] = useState<'time' | 'download' | 'upload' | 'speed' | 'host'>('time');
   const [page, setPage] = useState(1);
   const [detailConn, setDetailConn] = useState<ConnectionItem | null>(null);
   const [confirmCloseAll, setConfirmCloseAll] = useState(false);
+  const [confirmCloseFiltered, setConfirmCloseFiltered] = useState(false);
   const [closingAll, setClosingAll] = useState(false);
 
   const prevSnapRef = useRef<{ ts: number; map: Map<string, { up: number; down: number }> }>({
@@ -65,6 +73,7 @@ export function ConnectionsPage(props: {
       prevSnapRef.current = { ts: now, map: nextMap };
 
       setConns(list);
+      setTotalCount(data.total_count ?? list.length);
       setSpeeds(nextSpeeds);
       setTotals({ up: data.upload_total, down: data.download_total, mem: data.memory });
       setLoading(false);
@@ -77,10 +86,44 @@ export function ConnectionsPage(props: {
     { intervalMs: 2500, enabled: props.running && !paused }
   );
 
+  const liveSpeed = useMemo(() => {
+    let down = 0;
+    let up = 0;
+    for (const s of Object.values(speeds)) {
+      down += s.down;
+      up += s.up;
+    }
+    return { down, up };
+  }, [speeds]);
+
+  const routeCounts = useMemo(() => {
+    let direct = 0;
+    let proxy = 0;
+    for (const c of conns) {
+      if (isDirectConnection(c)) direct++;
+      else proxy++;
+    }
+    return { direct, proxy };
+  }, [conns]);
+
+  const topSources = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const c of conns) {
+      const ip = c.metadata?.sourceIP;
+      if (ip) counts.set(ip, (counts.get(ip) || 0) + 1);
+    }
+    if (counts.size <= 1) return [];
+    return [...counts.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 4);
+  }, [conns]);
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     const list = conns.filter((c) => {
       if (netFilter !== 'all' && (c.metadata?.network || '').toLowerCase() !== netFilter) return false;
+      if (routeFilter === 'direct' && !isDirectConnection(c)) return false;
+      if (routeFilter === 'proxy' && isDirectConnection(c)) return false;
       if (!q) return true;
       const target = `${c.metadata?.host || ''} ${c.metadata?.destinationIP || ''} ${c.metadata?.sourceIP || ''} ${c.metadata?.process || ''} ${c.rule || ''} ${c.rulePayload || ''} ${(c.chains || []).join(' ')}`.toLowerCase();
       return target.includes(q);
@@ -102,11 +145,19 @@ export function ConnectionsPage(props: {
       return Date.parse(b.start) - Date.parse(a.start);
     });
     return list;
-  }, [conns, speeds, search, netFilter, sortBy]);
+  }, [conns, speeds, search, netFilter, routeFilter, sortBy]);
 
+  const hasFilter = Boolean(search.trim() || netFilter !== 'all' || routeFilter !== 'all');
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const safePage = Math.min(page, totalPages);
   const pageItems = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+
+  const quickFilterText = (val: string, e: Event) => {
+    e.stopPropagation();
+    if (!val) return;
+    setSearch((prev) => (prev === val ? '' : val));
+    setPage(1);
+  };
 
   const handleCloseOne = async (id: string, e?: Event) => {
     e?.stopPropagation();
@@ -125,9 +176,32 @@ export function ConnectionsPage(props: {
     try {
       await nikkiApi.closeAllConnections();
       setConns([]);
+      setTotalCount(0);
       setDetailConn(null);
       setConfirmCloseAll(false);
       props.notify('success', '已关闭全部活跃连接');
+    } catch (err) {
+      props.notify('error', (err as Error).message);
+    } finally {
+      setClosingAll(false);
+    }
+  };
+
+  const handleCloseFiltered = async () => {
+    setClosingAll(true);
+    const targets = filtered.map((c) => c.id);
+    const closedIds = new Set<string>();
+    try {
+      for (let i = 0; i < targets.length; i += 8) {
+        const batch = targets.slice(i, i + 8);
+        const results = await Promise.allSettled(batch.map((id) => nikkiApi.closeConnection(id)));
+        results.forEach((r, idx) => {
+          if (r.status === 'fulfilled') closedIds.add(batch[idx]);
+        });
+      }
+      setConns((prev) => prev.filter((c) => !closedIds.has(c.id)));
+      setConfirmCloseFiltered(false);
+      props.notify('success', `已关闭 ${closedIds.size} 条筛选连接`);
     } catch (err) {
       props.notify('error', (err as Error).message);
     } finally {
@@ -151,12 +225,21 @@ export function ConnectionsPage(props: {
         <div>
           <h1 class="page-title">活跃连接 ({filtered.length})</h1>
           <p class="page-desc">
-            累计下行 <span class="mono">{formatBytes(totals.down)}</span> · 累计上行{' '}
-            <span class="mono">{formatBytes(totals.up)}</span> · 内存 <span class="mono">{formatBytes(totals.mem)}</span> ·
-            点击任意行查看详情
+            实时 <span class="mono">↓ {formatBytes(liveSpeed.down, true)} · ↑ {formatBytes(liveSpeed.up, true)}</span> · 累计下行{' '}
+            <span class="mono">{formatBytes(totals.down)}</span> · 累计上行{' '}
+            <span class="mono">{formatBytes(totals.up)}</span> · 内存 <span class="mono">{formatBytes(totals.mem)}</span>
           </p>
         </div>
         <div class="row" style={{ gap: '12px' }}>
+          {hasFilter && filtered.length > 0 && filtered.length < conns.length && (
+            <button
+              type="button"
+              class="btn btn-danger"
+              onClick={() => setConfirmCloseFiltered(true)}
+            >
+              关闭筛选 ({filtered.length})
+            </button>
+          )}
           <button type="button" class="btn btn-danger" onClick={() => setConfirmCloseAll(true)} disabled={conns.length === 0}>
             关闭全部连接
           </button>
@@ -177,7 +260,7 @@ export function ConnectionsPage(props: {
             <input
               type="search"
               aria-label="筛选连接"
-              placeholder="搜索域名、IP、进程、规则或链路"
+              placeholder="搜索域名、IP、进程、规则或链路（按 / 聚焦）"
               value={search}
               onInput={(e) => {
                 setSearch((e.currentTarget as HTMLInputElement).value);
@@ -214,19 +297,68 @@ export function ConnectionsPage(props: {
             <option value="upload">按上传量</option>
             <option value="host">按目标域名</option>
           </select>
-          {(search || netFilter !== 'all') && (
+          {hasFilter && (
             <button
               type="button"
               class="btn btn-ghost"
               onClick={() => {
                 setSearch('');
                 setNetFilter('all');
+                setRouteFilter('all');
                 setPage(1);
               }}
             >
               清除筛选
             </button>
           )}
+        </div>
+
+        {/* FlClash-style Quick Filter Chips: Route + Top Client Devices */}
+        <div class="filter-bar">
+          <button
+            type="button"
+            class={`chip ${routeFilter === 'all' ? 'active' : ''}`}
+            onClick={() => {
+              setRouteFilter('all');
+              setPage(1);
+            }}
+          >
+            全部 ({conns.length})
+          </button>
+          <button
+            type="button"
+            class={`chip ${routeFilter === 'proxy' ? 'active' : ''}`}
+            onClick={() => {
+              setRouteFilter('proxy');
+              setPage(1);
+            }}
+          >
+            仅代理 ({routeCounts.proxy})
+          </button>
+          <button
+            type="button"
+            class={`chip ${routeFilter === 'direct' ? 'active' : ''}`}
+            onClick={() => {
+              setRouteFilter('direct');
+              setPage(1);
+            }}
+          >
+            仅直连 ({routeCounts.direct})
+          </button>
+          {topSources.map(([ip, cnt]) => (
+            <button
+              key={ip}
+              type="button"
+              class={`chip mono ${search === ip ? 'active' : ''}`}
+              title={`点击按来源设备 ${ip} 筛选`}
+              onClick={() => {
+                setSearch((prev) => (prev === ip ? '' : ip));
+                setPage(1);
+              }}
+            >
+              {ip} ({cnt})
+            </button>
+          ))}
         </div>
 
         <div class="table-wrap">
@@ -257,13 +389,22 @@ export function ConnectionsPage(props: {
                     : formatHostPort(c.metadata?.destinationIP, c.metadata?.destinationPort);
                   const src = formatHostPort(c.metadata?.sourceIP, c.metadata?.sourcePort);
                   const sp = speeds[c.id];
+                  const revChains = [...(c.chains || [])].reverse();
+                  const exitNode = revChains[revChains.length - 1] || '';
                   return (
                     <tr key={c.id} class="clickable-row" onClick={() => setDetailConn(c)}>
                       <td class="mono" style={{ maxWidth: '280px', wordBreak: 'break-all' }}>
                         {dest}
                       </td>
                       <td class="mono" style={{ color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
-                        {src}
+                        <button
+                          type="button"
+                          class="cell-filter-btn"
+                          title="点击按此来源 IP 筛选"
+                          onClick={(e) => quickFilterText(c.metadata?.sourceIP || '', e)}
+                        >
+                          {src}
+                        </button>
                       </td>
                       <td>
                         <span class="badge mono">{(c.metadata?.network || '—').toUpperCase()}</span>
@@ -272,8 +413,15 @@ export function ConnectionsPage(props: {
                         {c.rule}
                         {c.rulePayload ? `(${c.rulePayload})` : ''}
                       </td>
-                      <td style={{ color: 'var(--accent-text)', fontWeight: 500 }}>
-                        {[...(c.chains || [])].reverse().join(' → ')}
+                      <td style={{ color: isDirectConnection(c) ? 'var(--text-muted)' : 'var(--accent-text)', fontWeight: 500 }}>
+                        <button
+                          type="button"
+                          class="cell-filter-btn"
+                          title={exitNode ? `点击按「${exitNode}」筛选` : undefined}
+                          onClick={(e) => quickFilterText(exitNode, e)}
+                        >
+                          {revChains.join(' → ')}
+                        </button>
                       </td>
                       <td class="mono td-right" style={{ whiteSpace: 'nowrap' }}>
                         <div>
@@ -308,6 +456,11 @@ export function ConnectionsPage(props: {
         <div class="card-footer">
           <span>
             共 <span class="mono">{filtered.length}</span> 条连接
+            {totalCount > conns.length ? (
+              <span style={{ color: 'var(--text-muted)' }}>
+                {' '}（显示最新 <span class="mono">{conns.length}</span> / 路由器共 <span class="mono">{totalCount}</span> 条）
+              </span>
+            ) : null}
             {totalPages > 1 ? ` · 第 ${safePage} / ${totalPages} 页` : ''}
           </span>
           {totalPages > 1 && (
@@ -422,6 +575,17 @@ export function ConnectionsPage(props: {
         confirmLabel="关闭全部连接"
         onConfirm={handleCloseAll}
         onCancel={() => setConfirmCloseAll(false)}
+      />
+
+      <ConfirmModal
+        open={confirmCloseFiltered}
+        title={`关闭筛选出的 ${filtered.length} 条连接？`}
+        message="仅会断开当前筛选结果中的活跃连接，不影响其他连接。"
+        danger
+        busy={closingAll}
+        confirmLabel="关闭筛选连接"
+        onConfirm={handleCloseFiltered}
+        onCancel={() => setConfirmCloseFiltered(false)}
       />
     </div>
   );

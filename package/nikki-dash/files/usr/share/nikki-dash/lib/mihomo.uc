@@ -339,6 +339,10 @@ export function api_close_all_connections() {
 	return mihomo_request('DELETE', '/connections', { timeout_sec: 5 });
 };
 
+export function api_flush_fakeip() {
+	return mihomo_request('POST', '/cache/fakeip/flush', { timeout_sec: 5 });
+};
+
 export function api_get_rules() {
 	return mihomo_request('GET', '/rules', { timeout_sec: 6, max_bytes: 3 * 1024 * 1024 });
 };

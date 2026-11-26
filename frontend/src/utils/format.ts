@@ -74,6 +74,23 @@ export function delayColorClass(delay?: number): string {
   return 'badge-red';
 }
 
+export function formatExpireCountdown(expire?: string): { text: string; badgeClass: string } | null {
+  if (!expire || typeof expire !== 'string') return null;
+  const trimmed = expire.trim();
+  if (!trimmed) return null;
+  // Support YYYY-MM-DD or full ISO datetime
+  const m = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  const ts = m
+    ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 23, 59, 59).getTime()
+    : Date.parse(trimmed);
+  if (!Number.isFinite(ts)) return null;
+  const days = Math.ceil((ts - Date.now()) / 86400000);
+  if (days < 0) return { text: `已过期 ${Math.abs(days)} 天`, badgeClass: 'badge-red' };
+  if (days === 0) return { text: '今日到期', badgeClass: 'badge-red' };
+  if (days <= 7) return { text: `剩余 ${days} 天`, badgeClass: 'badge-amber' };
+  return { text: `剩余 ${days} 天`, badgeClass: 'badge-green' };
+}
+
 export function formatTaskKind(kind: string): string {
   const map: Record<string, string> = {
     apply_config: '应用 Nikki 配置',

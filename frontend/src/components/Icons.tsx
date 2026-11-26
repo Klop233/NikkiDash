@@ -230,3 +230,62 @@ export const IconChevronRight = ({ className }: Props) =>
     className,
     16
   );
+
+export const IconCrosshair = ({ className }: Props) =>
+  svg(
+    <>
+      <circle cx="10" cy="10" r="5" />
+      <path d="M10 2.5v2.5M10 15v2.5M2.5 10H5M15 10h2.5" />
+    </>,
+    className,
+    16
+  );
+
+export const IconTabs = ({ className }: Props) =>
+  svg(
+    <>
+      <rect x="3" y="4" width="14" height="12" rx="1.5" />
+      <path d="M3 8h14M8.5 4v4" />
+    </>,
+    className,
+    16
+  );
+
+export const IconList = ({ className }: Props) =>
+  svg(
+    <>
+      <path d="M4 5.5h12M4 10h12M4 14.5h12" />
+    </>,
+    className,
+    16
+  );
+
+export const IconSliders = ({ className }: Props) =>
+  svg(
+    <>
+      <path d="M3.5 6h13M3.5 14h13" />
+      <circle cx="7.5" cy="6" r="1.75" fill="var(--bg-surface)" />
+      <circle cx="12.5" cy="14" r="1.75" fill="var(--bg-surface)" />
+    </>,
+    className,
+    16
+  );
+
+export const IconCopy = ({ className }: Props) =>
+  svg(
+    <>
+      <rect x="7" y="7" width="9" height="9" rx="1.5" />
+      <path d="M13 7V5.5A1.5 1.5 0 0 0 11.5 4h-6A1.5 1.5 0 0 0 4 5.5v6A1.5 1.5 0 0 0 5.5 13H7" />
+    </>,
+    className,
+    16
+  );
+
+export const IconChevronDown = ({ className }: Props) =>
+  svg(
+    <>
+      <path d="M5 7.5L10 12.5 15 7.5" />
+    </>,
+    className,
+    16
+  );
