@@ -68,4 +68,22 @@ describe('Static security invariants for OpenWrt package', () => {
       expect(src).not.toMatch(/ubus\.call\s*\(\s*['"](session|luci-rpc|luci|uci|file|iwinfo|rc)['"]/);
     }
   });
+
+  it('LuCI Services entry registers under admin/services/nikki-dash with least-privilege ACL', () => {
+    const menu = JSON.parse(
+      readFileSync(path.join(pkgRoot, 'files/usr/share/luci/menu.d/luci-app-nikki-dash.json'), 'utf8')
+    );
+    expect(menu['admin/services/nikki-dash']).toBeDefined();
+    expect(menu['admin/services/nikki-dash'].title).toBe('NikkiDash');
+    expect(menu['admin/services/nikki-dash'].action.path).toBe('nikki-dash/settings');
+
+    const luciAcl = JSON.parse(
+      readFileSync(path.join(pkgRoot, 'files/usr/share/rpcd/acl.d/luci-app-nikki-dash.json'), 'utf8')
+    )['luci-app-nikki-dash'];
+    expect(luciAcl.read.uci).toEqual(['nikki_dash']);
+    expect(luciAcl.write.uci).toEqual(['nikki_dash']);
+    expect(luciAcl.read.file).toBeUndefined();
+    expect(luciAcl.write.file).toBeUndefined();
+    expect(Object.keys(luciAcl.write.ubus)).toEqual(['nikki-dash']);
+  });
 });

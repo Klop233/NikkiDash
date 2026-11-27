@@ -146,6 +146,31 @@ POST_HASH="$(sha256sum /etc/config/nikki | awk '{print $1}')"
 [ "$PRE_HASH" = "$POST_HASH" ] || fail "/etc/config/nikki was modified during install!"
 pass "Existing /etc/config/nikki preserved untouched"
 
+echo "=== 2b. Verify LuCI Services entry & All-in-One bundle package structure ==="
+[ -f /usr/share/luci/menu.d/luci-app-nikki-dash.json ] || fail "Missing LuCI Services menu JSON"
+grep -q '"admin/services/nikki-dash"' /usr/share/luci/menu.d/luci-app-nikki-dash.json || fail "Invalid LuCI Services menu path"
+[ -f /usr/share/rpcd/acl.d/luci-app-nikki-dash.json ] || fail "Missing LuCI ACL JSON"
+[ -f /www/luci-static/resources/view/nikki-dash/settings.js ] || fail "Missing LuCI settings JS view"
+pass "LuCI Services entry (admin/services/nikki-dash) installed cleanly"
+
+BUNDLE_IPK="$(ls /mnt/dist/nikki-dash-all_*_x86_64.ipk 2>/dev/null | head -n 1 || true)"
+if [ -n "$BUNDLE_IPK" ]; then
+	mkdir -p /tmp/bundle-unpack/ctrl /tmp/bundle-unpack/data
+	tar -xzf "$BUNDLE_IPK" -C /tmp/bundle-unpack
+	tar -xzf /tmp/bundle-unpack/control.tar.gz -C /tmp/bundle-unpack/ctrl
+	tar -xzf /tmp/bundle-unpack/data.tar.gz -C /tmp/bundle-unpack/data
+	grep -q '^Package: nikki-dash-all$' /tmp/bundle-unpack/ctrl/control || fail "Invalid bundle package name"
+	grep -q '^Provides: nikki, mihomo, nikki-dash$' /tmp/bundle-unpack/ctrl/control || fail "Missing bundle Provides"
+	[ -x /tmp/bundle-unpack/data/etc/init.d/nikki ] || fail "Bundle missing /etc/init.d/nikki"
+	[ -x /tmp/bundle-unpack/data/usr/bin/mihomo ] || fail "Bundle missing executable /usr/bin/mihomo"
+	[ -f /tmp/bundle-unpack/data/usr/share/nikki-dash/bundle-versions.json ] || fail "Bundle missing bundle-versions.json"
+	[ -f /tmp/bundle-unpack/data/usr/share/luci/menu.d/luci-app-nikki-dash.json ] || fail "Bundle missing LuCI menu"
+	[ ! -f /tmp/bundle-unpack/data/etc/config/nikki ] || fail "Bundle must ship nikki.conf as template, not overwrite /etc/config/nikki"
+	/tmp/bundle-unpack/data/usr/bin/mihomo -v | grep -qi 'Mihomo' || fail "Bundled mihomo binary failed to execute!"
+	rm -rf /tmp/bundle-unpack
+	pass "All-in-One nikki-dash-all bundle verified (Nikki + runnable Mihomo + NikkiDash + LuCI)"
+fi
+
 echo "=== 3. Verify all ucode modules compile cleanly ==="
 for f in /usr/share/nikki-dash/lib/*.uc; do
 	ucode -S -e "import * as m from '$f'; if (length(keys(m)) == 0) exit(1);" || fail "Import failed: $f"

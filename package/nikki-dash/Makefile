@@ -1,7 +1,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=nikki-dash
-PKG_VERSION:=0.7.0
+PKG_VERSION:=0.8.0
 PKG_RELEASE:=1
 PKG_LICENSE:=MIT
 PKG_MAINTAINER:=Klop233
@@ -66,9 +66,16 @@ define Package/nikki-dash/install
 
 	$(INSTALL_DIR) $(1)/usr/share/rpcd/acl.d
 	$(INSTALL_DATA) $(CURDIR)/files/usr/share/rpcd/acl.d/nikki-dash.json $(1)/usr/share/rpcd/acl.d/nikki-dash.json
+	$(INSTALL_DATA) $(CURDIR)/files/usr/share/rpcd/acl.d/luci-app-nikki-dash.json $(1)/usr/share/rpcd/acl.d/luci-app-nikki-dash.json
 
 	$(INSTALL_DIR) $(1)/usr/share/rpcd/ucode
 	$(INSTALL_DATA) $(CURDIR)/files/usr/share/rpcd/ucode/nikki-dash $(1)/usr/share/rpcd/ucode/nikki-dash
+
+	$(INSTALL_DIR) $(1)/usr/share/luci/menu.d
+	$(INSTALL_DATA) $(CURDIR)/files/usr/share/luci/menu.d/luci-app-nikki-dash.json $(1)/usr/share/luci/menu.d/luci-app-nikki-dash.json
+
+	$(INSTALL_DIR) $(1)/www/luci-static/resources/view/nikki-dash
+	$(INSTALL_DATA) $(CURDIR)/files/www/luci-static/resources/view/nikki-dash/settings.js $(1)/www/luci-static/resources/view/nikki-dash/settings.js
 
 	$(INSTALL_DIR) $(1)/www/nikki-dash
 	$(CP) $(CURDIR)/files/www/nikki-dash/* $(1)/www/nikki-dash/
@@ -78,7 +85,8 @@ define Package/nikki-dash/postinst
 #!/bin/sh
 [ -n "$${IPKG_INSTROOT}" ] && exit 0
 # Never modify /etc/config/nikki or auto-start nikki.
-# Only reload rpcd ACLs/plugins and enable/restart the standalone dashboard.
+# Only reload rpcd ACLs/plugins, refresh LuCI menu cache, and enable/restart the standalone dashboard.
+rm -rf /tmp/luci-indexcache /tmp/luci-modulecache/* >/dev/null 2>&1 || true
 /etc/init.d/rpcd reload >/dev/null 2>&1 || /etc/init.d/rpcd restart >/dev/null 2>&1 || true
 /etc/init.d/nikki-dash enable >/dev/null 2>&1 || true
 /etc/init.d/nikki-dash restart >/dev/null 2>&1 || true
@@ -96,6 +104,7 @@ if uci -q get rpcd.nikki_dash_guest >/dev/null 2>&1; then
 	uci -q commit rpcd
 	/etc/init.d/rpcd reload >/dev/null 2>&1 || true
 fi
+rm -rf /tmp/luci-indexcache /tmp/luci-modulecache/* >/dev/null 2>&1 || true
 exit 0
 endef
 

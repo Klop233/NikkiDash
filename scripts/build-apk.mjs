@@ -162,6 +162,7 @@ const pkgInfoText = [
 ].join('\n');
 
 const postInstallText = `#!/bin/sh
+rm -rf /tmp/luci-indexcache /tmp/luci-modulecache/* >/dev/null 2>&1 || true
 if [ -S /var/run/ubus/ubus.sock ] && [ -x /etc/init.d/nikki-dash ]; then
 \t/etc/init.d/rpcd reload >/dev/null 2>&1 || /etc/init.d/rpcd restart >/dev/null 2>&1 || true
 \t/etc/init.d/nikki-dash enable >/dev/null 2>&1 || true
@@ -180,6 +181,7 @@ if uci -q get rpcd.nikki_dash_guest >/dev/null 2>&1; then
 \tuci -q commit rpcd
 \t/etc/init.d/rpcd reload >/dev/null 2>&1 || true
 fi
+rm -rf /tmp/luci-indexcache /tmp/luci-modulecache/* >/dev/null 2>&1 || true
 exit 0
 `;
 

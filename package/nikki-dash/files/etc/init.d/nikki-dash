@@ -37,11 +37,13 @@ sync_guest_account() {
 			uci -q add_list rpcd.nikki_dash_guest.read='nikki-dash-guest'
 			uci -q add_list rpcd.nikki_dash_guest.write='nikki-dash-guest'
 			uci -q commit rpcd
+			/etc/init.d/rpcd reload >/dev/null 2>&1 || true
 		fi
 	else
 		if uci -q get rpcd.nikki_dash_guest >/dev/null 2>&1; then
 			uci -q delete rpcd.nikki_dash_guest
 			uci -q commit rpcd
+			/etc/init.d/rpcd reload >/dev/null 2>&1 || true
 		fi
 	fi
 }

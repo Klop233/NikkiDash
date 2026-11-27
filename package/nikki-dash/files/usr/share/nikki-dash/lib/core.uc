@@ -111,9 +111,22 @@ export function detect_platform() {
 	let meta_ver = query_pkg_version(pkg_mgr, 'mihomo-meta');
 	let alpha_ver = query_pkg_version(pkg_mgr, 'mihomo-alpha');
 
+	// Read bundled manifest when installed via all-in-one nikki-dash-all package
+	let bundle_meta = null;
+	let bundle_raw = readfile('/usr/share/nikki-dash/bundle-versions.json');
+	if (bundle_raw) {
+		try {
+			bundle_meta = json(bundle_raw);
+		} catch (e) {}
+	}
+	if (length(nikki_pkg_ver) == 0 && bundle_meta?.nikki_pkg_version) {
+		nikki_pkg_ver = bundle_meta.nikki_pkg_version;
+	}
+
 	let mihomo_variant = '';
 	if (length(meta_ver) > 0) mihomo_variant = 'meta';
 	else if (length(alpha_ver) > 0) mihomo_variant = 'alpha';
+	else if (bundle_meta?.mihomo_version && cmd_exists('mihomo')) mihomo_variant = 'meta';
 	else if (cmd_exists('mihomo')) mihomo_variant = 'custom';
 
 	let luci_packages = list_luci_nikki_packages(pkg_mgr);
@@ -148,7 +161,8 @@ export function detect_platform() {
 		nikki_version: nikki_pkg_ver,
 		mihomo_installed: mihomo_installed,
 		mihomo_variant: mihomo_variant,
-		mihomo_pkg_version: meta_ver || alpha_ver || '',
+		mihomo_pkg_version: meta_ver || alpha_ver || (bundle_meta?.mihomo_version ?? ''),
+		bundled: bundle_meta != null,
 		luci_nikki_installed: length(luci_packages) > 0,
 		luci_packages: luci_packages
 	};

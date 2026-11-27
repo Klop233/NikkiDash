@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   build-and-release:
-    name: Build, Verify & Release OpenWrt IPK
+    name: Build, Verify & Release OpenWrt Packages (Standalone + All-in-One)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -35,10 +35,13 @@ jobs:
       - name: Build Frontend SPA
         run: node scripts/build-frontend.mjs
 
-      - name: Build OpenWrt IPK (24.10 opkg) & APK (25.12+ apk)
+      - name: Build Standalone (noarch) & All-in-One Multi-Arch IPK/APK Packages
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           node scripts/build-ipk.mjs
           node scripts/build-apk.mjs
+          node scripts/build-bundle.mjs --all
 
       - name: Run OpenWrt 24.10 Live Container Verification (real opkg + uhttpd + rpcd + ucode)
         run: |

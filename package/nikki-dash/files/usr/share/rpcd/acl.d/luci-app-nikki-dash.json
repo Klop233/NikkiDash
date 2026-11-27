@@ -1,0 +1,26 @@
+{
+	"luci-app-nikki-dash": {
+		"description": "Grant LuCI Services entry basic settings access for NikkiDash",
+		"read": {
+			"uci": [ "nikki_dash" ],
+			"ubus": {
+				"nikki-dash": [
+					"auth_info",
+					"get_status",
+					"get_access",
+					"get_core_status"
+				],
+				"network.interface": [ "dump" ]
+			}
+		},
+		"write": {
+			"uci": [ "nikki_dash" ],
+			"ubus": {
+				"nikki-dash": [
+					"service_action",
+					"set_access"
+				]
+			}
+		}
+	}
+}

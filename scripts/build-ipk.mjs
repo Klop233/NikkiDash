@@ -136,6 +136,7 @@ const conffilesText = '/etc/config/nikki_dash\n';
 
 const postinstText = `#!/bin/sh
 [ -n "\${IPKG_INSTROOT}" ] && exit 0
+rm -rf /tmp/luci-indexcache /tmp/luci-modulecache/* >/dev/null 2>&1 || true
 /etc/init.d/rpcd reload >/dev/null 2>&1 || /etc/init.d/rpcd restart >/dev/null 2>&1 || true
 /etc/init.d/nikki-dash enable >/dev/null 2>&1 || true
 /etc/init.d/nikki-dash restart >/dev/null 2>&1 || true
@@ -151,6 +152,7 @@ if uci -q get rpcd.nikki_dash_guest >/dev/null 2>&1; then
 \tuci -q commit rpcd
 \t/etc/init.d/rpcd reload >/dev/null 2>&1 || true
 fi
+rm -rf /tmp/luci-indexcache /tmp/luci-modulecache/* >/dev/null 2>&1 || true
 exit 0
 `;
 

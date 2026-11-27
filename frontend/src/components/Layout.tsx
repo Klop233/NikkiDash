@@ -101,7 +101,7 @@ export function Layout(props: {
     props.profileDisplayName ||
     (props.status?.profile ? props.status.profile.replace(/^(file|subscription):/, '') : t.status.noProfile);
   const avatarText = (props.session.isGuest ? (lang === 'en-US' ? 'G' : '客') : props.session.username.slice(0, 1).toUpperCase()) || 'U';
-  const versionText = `v${props.status?.dash_version || '0.7.0'}`;
+  const versionText = `v${props.status?.dash_version || '0.8.0'}`;
 
   const navigate = (p: PageId) => {
     props.onNavigate(p);

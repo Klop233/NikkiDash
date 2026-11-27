@@ -49,4 +49,17 @@ describe('Nikki UCI Schema completeness & sync', () => {
     expect(schema.repeatable_sections.authentication.options.password.secret).toBe(true);
     expect(schema.repeatable_sections.subscription.options.avaliable.readonly).toBe(true);
   });
+
+  it('tracks valid upstream Nikki & Mihomo versions and vendored Nikki core files', () => {
+    const manifest = JSON.parse(readFileSync(path.resolve(__dirname, '../upstream/versions.json'), 'utf8'));
+    expect(manifest.nikki.tag).toBe(schema.upstream.tag);
+    expect(manifest.mihomo.tag).toBe(schema.upstream.mihomo_tag);
+    expect(manifest.nikki.files.length).toBeGreaterThanOrEqual(15);
+    expect(manifest.mihomo.assets.x86_64.sha256).toMatch(/^[a-f0-9]{64}$/);
+    expect(manifest.mihomo.assets.aarch64_generic.sha256).toMatch(/^[a-f0-9]{64}$/);
+    for (const f of manifest.nikki.files) {
+      const content = readFileSync(path.resolve(__dirname, '../upstream/nikki', f.path));
+      expect(content.length).toBeGreaterThan(0);
+    }
+  });
 });

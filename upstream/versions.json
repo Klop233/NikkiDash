@@ -1,0 +1,137 @@
+{
+  "schema_version": 1,
+  "nikki": {
+    "repo": "nikkinikki-org/OpenWrt-nikki",
+    "tag": "v1.26.2",
+    "pkg_version": "2026.10.10",
+    "commit": "31339d53b454f575082dc4e16510c96858e01921",
+    "published_at": "2026-10-10T09:29:47Z",
+    "files": [
+      {
+        "path": "mixin.yaml",
+        "sha256": "5ddbf334a4ce1cfac2f440ce30402e97a7d1d9acc6ab1cfebc6170cf0ede8aaf",
+        "size": 835
+      },
+      {
+        "path": "nftables/geoip_cn.nft",
+        "sha256": "bf70b99871ffe8e992a079ee5398f5ffc7e5987909901f8f09dac54198f9d4ae",
+        "size": 145764
+      },
+      {
+        "path": "nftables/geoip6_cn.nft",
+        "sha256": "8f6edb42b19bf770b9a1ad87108e79ca42f364793147504d2fca09470e6eec3a",
+        "size": 36935
+      },
+      {
+        "path": "nikki.conf",
+        "sha256": "7d67418d19142423553c01f782fe2fdf1a88c1ce79a6cf6f97587c5a8ee659a9",
+        "size": 6582
+      },
+      {
+        "path": "nikki.init",
+        "sha256": "e2716e7212ad1f94d8c3e858875d58877641db0a3d29ee462372919841a5fc38",
+        "size": 28781
+      },
+      {
+        "path": "nikki.upgrade",
+        "sha256": "3ee18e16c4e5fd0c81e3e73ee2d106a86e261fca47a46dee203af66d64ca8bae",
+        "size": 132
+      },
+      {
+        "path": "scripts/debug.sh",
+        "sha256": "cb36883060dd99e9cc0e73181999bedab3a4f8edee7222e00443e9a14aebaed3",
+        "size": 4372
+      },
+      {
+        "path": "scripts/firewall_include.sh",
+        "sha256": "e318294b7f12607d0e62ea0eee7fc11bbfcb85de430694092035adb9627520c4",
+        "size": 982
+      },
+      {
+        "path": "scripts/include.sh",
+        "sha256": "7e6d35d1c0f2d4341aa3b0e628c5a78838dcc5e5cf12e9185864c85671563f01",
+        "size": 2133
+      },
+      {
+        "path": "uci-defaults/firewall.sh",
+        "sha256": "47a7743bb370b14d41b26bbf7e938065e03c9d6535c8c6da1de88f8564550fc8",
+        "size": 276
+      },
+      {
+        "path": "uci-defaults/init.sh",
+        "sha256": "9f147b8cdd90e211d90f2a22fd4c7eeff17f78c008613bb4d22780da6b4a4389",
+        "size": 554
+      },
+      {
+        "path": "uci-defaults/migrate.sh",
+        "sha256": "6c0f5a3cd3a62cca20a17b2d000c4e8d4150df39c33ddd582fbc354f12387df0",
+        "size": 10526
+      },
+      {
+        "path": "ucode/hijack.ut",
+        "sha256": "d6ecab87c26d3bc093aecd2832dcc26e860bd70cddc66d720e07742330aa78ab",
+        "size": 30381
+      },
+      {
+        "path": "ucode/include.uc",
+        "sha256": "c4d81fa461a327a4e38ed441830c29d80533bc8391b2dac04cc2afa8ce9c3e4c",
+        "size": 1788
+      },
+      {
+        "path": "ucode/mixin.uc",
+        "sha256": "2656a8714e9e52ab324bf49245bc305075fe0a78e8e7b5872e203d42f43a41eb",
+        "size": 9212
+      }
+    ]
+  },
+  "mihomo": {
+    "repo": "MetaCubeX/mihomo",
+    "tag": "v1.19.34",
+    "version": "1.19.34",
+    "published_at": "2026-11-11T07:01:35Z",
+    "assets": {
+      "x86_64": {
+        "file": "mihomo-linux-amd64-compatible-v1.19.34.gz",
+        "url": "https://github.com/MetaCubeX/mihomo/releases/download/v1.19.34/mihomo-linux-amd64-compatible-v1.19.34.gz",
+        "size": 22766457,
+        "sha256": "2763f5b414527f7baf6dc57e3f82f3ab561eedf34bfd7c2f2cde1f7e592efe06"
+      },
+      "aarch64_generic": {
+        "file": "mihomo-linux-arm64-v1.19.34.gz",
+        "url": "https://github.com/MetaCubeX/mihomo/releases/download/v1.19.34/mihomo-linux-arm64-v1.19.34.gz",
+        "size": 20684679,
+        "sha256": "daaf78a6240a282cdfd75bcbf98fe321f6bd52765cc29e79f344191198f0b50f"
+      },
+      "aarch64_cortex-a53": {
+        "file": "mihomo-linux-arm64-v1.19.34.gz",
+        "url": "https://github.com/MetaCubeX/mihomo/releases/download/v1.19.34/mihomo-linux-arm64-v1.19.34.gz",
+        "size": 20684679,
+        "sha256": "daaf78a6240a282cdfd75bcbf98fe321f6bd52765cc29e79f344191198f0b50f"
+      },
+      "aarch64_cortex-a72": {
+        "file": "mihomo-linux-arm64-v1.19.34.gz",
+        "url": "https://github.com/MetaCubeX/mihomo/releases/download/v1.19.34/mihomo-linux-arm64-v1.19.34.gz",
+        "size": 20684679,
+        "sha256": "daaf78a6240a282cdfd75bcbf98fe321f6bd52765cc29e79f344191198f0b50f"
+      },
+      "arm_cortex-a7_neon-vfpv4": {
+        "file": "mihomo-linux-armv7-v1.19.34.gz",
+        "url": "https://github.com/MetaCubeX/mihomo/releases/download/v1.19.34/mihomo-linux-armv7-v1.19.34.gz",
+        "size": 21048350,
+        "sha256": "aa5e51572e29ce22ace7b6e28e611e1f1f635210d76420d161ce12a5431bf93e"
+      },
+      "mipsel_24kc": {
+        "file": "mihomo-linux-mipsle-softfloat-v1.19.34.gz",
+        "url": "https://github.com/MetaCubeX/mihomo/releases/download/v1.19.34/mihomo-linux-mipsle-softfloat-v1.19.34.gz",
+        "size": 20243322,
+        "sha256": "b34bbb86196c32915abf4a5b361c11218ea1da4344a353768f570e79f69d2c04"
+      },
+      "riscv64_generic": {
+        "file": "mihomo-linux-riscv64-v1.19.34.gz",
+        "url": "https://github.com/MetaCubeX/mihomo/releases/download/v1.19.34/mihomo-linux-riscv64-v1.19.34.gz",
+        "size": 20918299,
+        "sha256": "0778b1f9c3449be12071c5f5c59b7599009158d0ebe92856f5f3d81f22704d62"
+      }
+    }
+  }
+}

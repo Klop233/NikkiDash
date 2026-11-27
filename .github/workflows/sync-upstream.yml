@@ -1,0 +1,115 @@
+name: Sync Upstream Nikki & Mihomo
+
+on:
+  schedule:
+    # Daily at 02:00 UTC (10:00 UTC+8)
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+    inputs:
+      force:
+        description: 'Force re-sync even if versions appear unchanged'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: sync-upstream
+  cancel-in-progress: false
+
+jobs:
+  sync-upstream:
+    name: Sync OpenWrt-nikki & Mihomo Versions
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Sync upstream versions & Nikki files
+        id: sync
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          ARGS="--github-output $GITHUB_OUTPUT"
+          if [ "${{ inputs.force }}" = "true" ]; then
+            ARGS="$ARGS --force"
+          fi
+          node scripts/sync-upstream.mjs $ARGS
+
+      - name: Check working tree diff
+        id: diff
+        run: |
+          if git status --porcelain | grep -q .; then
+            echo "has_diff=true" >> "$GITHUB_OUTPUT"
+            git status --short
+          else
+            echo "has_diff=false" >> "$GITHUB_OUTPUT"
+            echo "Already up to date with upstream Nikki (${{ steps.sync.outputs.nikki_tag }}) and Mihomo (${{ steps.sync.outputs.mihomo_tag }})."
+          fi
+
+      - name: Validate tests & build x86_64 all-in-one bundle
+        if: steps.diff.outputs.has_diff == 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          npm --prefix frontend ci
+          npm --prefix frontend run typecheck
+          npm --prefix frontend test
+          node scripts/build-frontend.mjs
+          node scripts/build-ipk.mjs
+          node scripts/build-apk.mjs
+          node scripts/build-bundle.mjs --arch x86_64
+
+      - name: Create or update sync PR
+        if: steps.diff.outputs.has_diff == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NIKKI_PREV: ${{ steps.sync.outputs.nikki_prev }}
+          NIKKI_TAG: ${{ steps.sync.outputs.nikki_tag }}
+          NIKKI_PKG: ${{ steps.sync.outputs.nikki_pkg_version }}
+          MIHOMO_PREV: ${{ steps.sync.outputs.mihomo_prev }}
+          MIHOMO_TAG: ${{ steps.sync.outputs.mihomo_tag }}
+          SCHEMA_DRIFT: ${{ steps.sync.outputs.schema_drift }}
+        run: |
+          BRANCH="chore/sync-upstream"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -B "$BRANCH"
+          git add upstream/ schema/nikki-schema.json package/nikki-dash/files/usr/share/nikki-dash/schema.json
+          git commit -m "chore(upstream): sync Nikki ${NIKKI_TAG} & Mihomo ${MIHOMO_TAG}"
+          git push -f origin "$BRANCH"
+
+          BODY=$(cat <<EOF
+          Automated upstream version synchronization for NikkiDash all-in-one packages:
+
+          | Component | Previous | Synced |
+          | --- | --- | --- |
+          | **OpenWrt-nikki** | \`${NIKKI_PREV}\` | \`${NIKKI_TAG}\` (pkg \`${NIKKI_PKG}\`) |
+          | **Mihomo** | \`${MIHOMO_PREV}\` | \`${MIHOMO_TAG}\` |
+
+          - Updated \`upstream/versions.json\` (pinned SHA256 hashes for all supported OpenWrt architectures)
+          - Updated \`upstream/nikki/\` scripts and \`schema/nikki-schema.json\` upstream metadata
+          - Verified typecheck, unit tests, and \`x86_64\` all-in-one bundle build
+          ${SCHEMA_DRIFT:+- ⚠️ New UCI options detected in upstream \`nikki.conf\` not yet in schema: \`${SCHEMA_DRIFT}\`}
+          EOF
+          )
+
+          TITLE="chore(upstream): sync Nikki ${NIKKI_TAG} & Mihomo ${MIHOMO_TAG}"
+          EXISTING=$(gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number // empty')
+          if [ -n "$EXISTING" ]; then
+            gh pr edit "$EXISTING" --title "$TITLE" --body "$BODY"
+          else
+            gh pr create --base main --head "$BRANCH" --title "$TITLE" --body "$BODY"
+          fi

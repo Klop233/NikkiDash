@@ -1,0 +1,14 @@
+{
+	"admin/services/nikki-dash": {
+		"title": "NikkiDash",
+		"order": 35,
+		"action": {
+			"type": "view",
+			"path": "nikki-dash/settings"
+		},
+		"depends": {
+			"acl": [ "luci-app-nikki-dash" ],
+			"uci": { "nikki_dash": true }
+		}
+	}
+}

@@ -8,7 +8,7 @@ on:
 
 jobs:
   test-and-build:
-    name: Frontend & Schema Tests + IPK Build
+    name: Frontend & Schema Tests + IPK/APK/Bundle Build
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -32,10 +32,13 @@ jobs:
       - name: Build Frontend SPA
         run: node scripts/build-frontend.mjs
 
-      - name: Build deterministic IPK & APK packages
+      - name: Build standalone IPK/APK and x86_64 all-in-one bundle
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           node scripts/build-ipk.mjs
           node scripts/build-apk.mjs
+          node scripts/build-bundle.mjs --arch x86_64
 
       - name: Verify live OpenWrt 24.10 container integration
         run: |
